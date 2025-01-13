@@ -1,4 +1,4 @@
-# Acalogos
+# ACA-LOGOS website
 
 Este es el repositorio del proyecto **Acalogos**, un sitio web para una empresa de gráfica. Este sitio es **propiedad privada** y su uso está restringido.
 
@@ -9,7 +9,7 @@ Este es el repositorio del proyecto **Acalogos**, un sitio web para una empresa 
 
 ## Propiedad Privada
 
-Este proyecto y su código son **propiedad privada** de **[José Gregorio Cabezas Castillo]**. **El uso no autorizado de este código está prohibido**.
+Este proyecto y su código son **propiedad privada** de **José Gregorio Cabezas Castillo**. **El uso no autorizado de este código está prohibido**.
 
 Cualquier acceso, distribución o uso no autorizado de este repositorio o sus archivos está sujeto a las leyes aplicables y podría ser perseguido legalmente.
 
