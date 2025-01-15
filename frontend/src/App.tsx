@@ -1,9 +1,10 @@
 import React from 'react';
+import Servicios from '../components/Servicios';
 
 const App: React.FC = () => {
   return (
     <div>
-      {/* Encabezado (Este es estático y ya está en tu index.html) */}
+      {/* Encabezado */}
       <header className="bg-gray-900 text-white">
         <div className="max-w-7xl mx-auto flex justify-between items-center py-4 px-6">
           <h1 className="text-2xl font-bold">Gráfica Creativa</h1>
@@ -30,20 +31,8 @@ const App: React.FC = () => {
       <section id="services" className="py-16 bg-white">
         <div className="max-w-7xl mx-auto px-6 text-center">
           <h3 className="text-3xl font-bold mb-8">Nuestros Servicios</h3>
-          <div className="grid gap-6 md:grid-cols-3">
-            <div className="bg-gray-100 p-6 rounded-lg shadow hover:shadow-lg">
-              <h4 className="text-xl font-semibold mb-4">Diseño Gráfico</h4>
-              <p>Creación de logos, identidad visual, y material publicitario.</p>
-            </div>
-            <div className="bg-gray-100 p-6 rounded-lg shadow hover:shadow-lg">
-              <h4 className="text-xl font-semibold mb-4">Impresión</h4>
-              <p>Impresión de alta calidad en todo tipo de materiales.</p>
-            </div>
-            <div className="bg-gray-100 p-6 rounded-lg shadow hover:shadow-lg">
-              <h4 className="text-xl font-semibold mb-4">Vinilos y Rotulación</h4>
-              <p>Diseños creativos para vehículos, vitrinas y espacios comerciales.</p>
-            </div>
-          </div>
+          {/* Aquí se inserta el componente Servicios */}
+          <Servicios />
         </div>
       </section>
 

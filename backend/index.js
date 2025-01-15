@@ -1,7 +1,11 @@
 import express from 'express';
+import cors from 'cors';
 
 const app = express();
 const port = 3000;
+
+// Middleware para habilitar CORS
+app.use(cors());
 
 // Middleware para parsear el cuerpo de las solicitudes como JSON
 app.use(express.json());
