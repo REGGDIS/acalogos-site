@@ -1,6 +1,7 @@
 import React from 'react';
 import Servicios from './components/Servicios';
 
+
 const App: React.FC = () => {
   return (
     <div>
@@ -41,9 +42,9 @@ const App: React.FC = () => {
         <div className="max-w-7xl mx-auto px-6 text-center">
           <h3 className="text-3xl font-bold mb-8">Portafolio</h3>
           <div className="grid gap-6 md:grid-cols-3">
-            <img src="https://via.placeholder.com/300" alt="Proyecto 1" className="rounded-lg shadow" />
-            <img src="https://via.placeholder.com/300" alt="Proyecto 2" className="rounded-lg shadow" />
-            <img src="https://via.placeholder.com/300" alt="Proyecto 3" className="rounded-lg shadow" />
+            <img src="/assets/images/proyecto1.jpg" alt="Proyecto 1" className="rounded-lg shadow" />
+            <img src="/assets/images/proyecto2.jpg" alt="Proyecto 2" className="rounded-lg shadow" />
+            <img src="/assets/images/proyecto3.jpg" alt="Proyecto 3" className="rounded-lg shadow" />
           </div>
         </div>
       </section>
