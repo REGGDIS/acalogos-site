@@ -1,16 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const Servicios = () => {
-    // Estado para almacenar los servicios
-    const [servicios, setServicios] = useState([]);
-    // Estado para manejar errores
-    const [error, setError] = useState(null);
+// Definición de la interfaz para el tipo de datos de un servicio
+interface Servicio {
+    id: number;
+    nombre: string;
+    descripcion: string;
+}
+
+const Servicios: React.FC = () => {
+    // Estado para almacenar los servicios, tipado con un arreglo de `Servicio`
+    const [servicios, setServicios] = useState<Servicio[]>([]);
+    // Estado para manejar errores, tipado como una cadena o nulo
+    const [error, setError] = useState<string | null>(null);
 
     // useEffect para hacer la solicitud al backend cuando el componente se monta
     useEffect(() => {
         // Hacer la solicitud al backend para obtener los servicios
-        axios.get('http://localhost:3000/servicios')
+        axios
+            .get('http://localhost:3000/servicios')
             .then(response => {
                 // Guardar los datos de la respuesta en el estado
                 setServicios(response.data.data);
