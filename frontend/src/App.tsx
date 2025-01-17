@@ -1,5 +1,6 @@
 import React from 'react';
 import Servicios from './components/Servicios';
+import Portfolio from './components/Portfolio';
 
 
 const App: React.FC = () => {
@@ -38,16 +39,7 @@ const App: React.FC = () => {
       </section>
 
       {/* Sección Portafolio */}
-      <section id="portfolio" className="py-16 bg-gray-50">
-        <div className="max-w-7xl mx-auto px-6 text-center">
-          <h3 className="text-3xl font-bold mb-8">Portafolio</h3>
-          <div className="grid gap-6 md:grid-cols-3">
-            <img src="/assets/images/proyecto1.jpg" alt="Proyecto 1" className="rounded-lg shadow" />
-            <img src="/assets/images/proyecto2.jpg" alt="Proyecto 2" className="rounded-lg shadow" />
-            <img src="/assets/images/proyecto3.jpg" alt="Proyecto 3" className="rounded-lg shadow" />
-          </div>
-        </div>
-      </section>
+      <Portfolio />
 
       {/* Sección Contacto */}
       <section id="contact" className="py-16 bg-white">
