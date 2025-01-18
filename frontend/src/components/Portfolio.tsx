@@ -6,15 +6,12 @@ const Portfolio: React.FC = () => {
 
   const openModal = (imageSrc: string) => {
     setModalImage(imageSrc);
-    setIsOpen(true);
+    setTimeout(() => setIsOpen(true), 50); // Pequeño retraso para activar la transición
   };
 
   const closeModal = () => {
     setIsOpen(false);
-    // Usamos un pequeño retraso para permitir que la animación de cierre se complete antes de limpiar la imagen.
-    setTimeout(() => {
-      setModalImage(null);
-    }, 500); // Retraso de 500ms para coincidir con la duración de la animación
+    setTimeout(() => setModalImage(null), 500); // Retraso para completar la animación
   };
 
   // Manejo de teclado para cerrar el modal con "Esc"
@@ -95,20 +92,20 @@ const Portfolio: React.FC = () => {
       {/* Modal */}
       {modalImage && (
         <div
-          className={`fixed inset-0 flex items-center justify-center bg-black bg-opacity-75 z-50 transition-opacity duration-300 ${
+          className={`fixed inset-0 flex items-center justify-center bg-black bg-opacity-75 z-50 transition-opacity duration-500 ${
             isOpen ? "opacity-100" : "opacity-0"
           }`}
           onClick={closeModal} // Cerrar al hacer clic fuera de la imagen
         >
           <div
-            className={`relative transition-transform duration-500 ${
+            className={`relative bg-white p-4 rounded-lg transition-transform duration-500 ${
               isOpen ? "scale-100 opacity-100" : "scale-90 opacity-0"
             }`}
             onClick={(e) => e.stopPropagation()} // Evitar cierre al hacer clic en la imagen
           >
             <img
               src={modalImage}
-              alt="Ampliada"
+              alt="Imagen ampliada"
               className="max-w-full max-h-screen rounded-lg"
             />
             <button
