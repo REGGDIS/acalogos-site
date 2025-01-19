@@ -1,6 +1,7 @@
 import React from 'react';
 import Servicios from './components/Servicios';
 import Portfolio from './components/Portfolio';
+import Contacto from './components/Contacto';
 
 
 const App: React.FC = () => {
@@ -9,7 +10,7 @@ const App: React.FC = () => {
       {/* Encabezado */}
       <header className="bg-gray-900 text-white">
         <div className="max-w-7xl mx-auto flex justify-between items-center py-4 px-6">
-          <h1 className="text-2xl font-bold">Gráfica Creativa</h1>
+          <h1 className="text-2xl font-bold">ACA Logos</h1>
           <nav className="space-x-4">
             <a href="#services" className="hover:text-yellow-400">Servicios</a>
             <a href="#portfolio" className="hover:text-yellow-400">Portafolio</a>
@@ -43,19 +44,7 @@ const App: React.FC = () => {
 
       {/* Sección Contacto */}
       <section id="contact" className="py-16 bg-white">
-        <div className="max-w-7xl mx-auto px-6 text-center">
-          <h3 className="text-3xl font-bold mb-8">Contáctanos</h3>
-          <form className="max-w-3xl mx-auto">
-            <div className="grid gap-4 md:grid-cols-2">
-              <input type="text" placeholder="Nombre" className="p-4 border rounded-lg" />
-              <input type="email" placeholder="Correo Electrónico" className="p-4 border rounded-lg" />
-            </div>
-            <textarea placeholder="Mensaje" className="w-full p-4 border rounded-lg mt-4"></textarea>
-            <button className="bg-yellow-500 hover:bg-yellow-600 text-black py-2 px-6 rounded-lg font-semibold mt-4">
-              Enviar
-            </button>
-          </form>
-        </div>
+        <Contacto />
       </section>
 
       {/* Footer */}
