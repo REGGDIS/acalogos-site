@@ -1,7 +1,13 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
+import { fileURLToPath } from 'url';
+import path from 'path';
 import nodemailer from 'nodemailer';
+
+// Configurar __dirname manualmente
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -21,6 +27,9 @@ const port = process.env.PORT || 3000;
 // Middleware para habilitar CORS y parsear JSON
 app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
+
+// Middleware para servir archivos estáticos
+app.use('/assets', express.static(path.join(__dirname, '../frontend/public/assets')));
 
 // Ruta raíz
 app.get('/', (req, res) => {
@@ -81,9 +90,41 @@ app.post('/contacto', async (req, res) => {
 // Ruta para obtener servicios de impresión
 app.get('/servicios', (req, res) => {
     const servicios = [
-        { id: 1, nombre: 'Impresión de pendones', descripción: 'Impresión de alta calidad para pendones en todo tipo de materiales.' },
-        { id: 2, nombre: 'Corte de letras en plotter', descripción: 'Corte de letras y figuras en plotter para decoración de interiores y exteriores.' },
-        { id: 3, nombre: 'Impresión de autoadhesivos', descripción: 'Impresión de autoadhesivos en alta calidad para decoración y publicidad.' }
+        {
+            id: 1,
+            nombre: 'Impresión de pendones',
+            descripcion: 'Impresión de alta calidad para pendones en todo tipo de materiales.',
+            precio: 'Consultar',
+            imagen: '/assets/images/servicios/pendones-fullsize.webp'
+        },
+        {
+            id: 2,
+            nombre: 'Corte de letras en plotter',
+            descripcion: 'Corte de letras y figuras en plotter para decoración de interiores y exteriores.',
+            precio: 'Consultar',
+            imagen: '/assets/images/servicios/corte-plotter-fullsize.webp'
+        },
+        {
+            id: 3,
+            nombre: 'Impresión de autoadhesivos',
+            descripcion: 'Impresión de autoadhesivos de alta calidad para decoración y publicidad.',
+            precio: 'Consultar',
+            imagen: '/assets/images/servicios/autoadhesivos-fullsize.webp'
+        },
+        {
+            id: 4,
+            nombre: 'Impresión de letreros',
+            descripcion: 'Impresión personalizada de letreros para empresas y eventos.',
+            precio: 'Consultar',
+            imagen: '/assets/images/servicios/impresiones-fullsize.webp'
+        },
+        {
+            id: 5,
+            nombre: 'Empavonado de vidrios (vinilado)',
+            descripcion: 'Decoración y privacidad con vinilos empavonados para ventanas y oficinas.',
+            precio: 'Consultar',
+            imagen: '/assets/images/servicios/empavonado-fullsize.webp'
+        }
     ];
     res.json({ status: 'success', data: servicios });
 });

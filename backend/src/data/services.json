@@ -1,0 +1,37 @@
+[
+  {
+    "id": 1,
+    "nombre": "Impresión de pendones",
+    "descripcion": "Impresión de alta calidad para pendones en todo tipo de materiales. Ideal para publicidad exterior e interior, ferias, eventos y más.",
+    "precio": "Consultar",
+    "imagen": "/assets/images/servicios/pendones-fullsize.webp"
+  },
+  {
+    "id": 2,
+    "nombre": "Corte de letras en plotter",
+    "descripcion": "Corte de letras y figuras en plotter para decoración de interiores y exteriores. Ofrecemos precisión y versatilidad en cada diseño.",
+    "precio": "Consultar",
+    "imagen": "/assets/images/servicios/corte-plotter-fullsize.webp"
+  },
+  {
+    "id": 3,
+    "nombre": "Impresión de autoadhesivos",
+    "descripcion": "Impresión de autoadhesivos de alta calidad, ideales para decoración de espacios, ventanas, vehículos o cualquier superficie plana.",
+    "precio": "Consultar",
+    "imagen": "/assets/images/servicios/autoadhesivos-fullsize.webp"
+  },
+  {
+    "id": 4,
+    "nombre": "Impresión de letreros",
+    "descripcion": "Creación de letreros publicitarios resistentes y llamativos para destacar tu marca en cualquier ubicación.",
+    "precio": "Consultar",
+    "imagen": "/assets/images/servicios/letreros-fullsize.webp"
+  },
+  {
+    "id": 5,
+    "nombre": "Empavonado de vidrios (vinilado)",
+    "descripcion": "Decoración de vidrios con vinilos empavonados para mejorar la privacidad y dar un toque elegante a tus espacios.",
+    "precio": "Consultar",
+    "imagen": "/assets/images/servicios/empavonado-fullsize.webp"
+  }
+]
