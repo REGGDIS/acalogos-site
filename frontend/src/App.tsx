@@ -2,19 +2,20 @@ import React from 'react';
 import Servicios from './components/Servicios';
 import Portfolio from './components/Portfolio';
 import Contacto from './components/Contacto';
+//import './styles/App.css';
 
 
 const App: React.FC = () => {
   return (
     <div>
       {/* Encabezado */}
-      <header className="bg-gray-900 text-white">
-        <div className="max-w-7xl mx-auto flex justify-between items-center py-4 px-6">
-          <h1 className="text-2xl font-bold">ACA Logos</h1>
+      <header className="bg-secondary text-accent py-4">
+        <div className="max-w-7xl mx-auto flex justify-between items-center px-6">
+          <h1 className="text-primary text-2xl font-bold">ACA Logos</h1>
           <nav className="space-x-4">
-            <a href="#services" className="hover:text-yellow-400">Servicios</a>
-            <a href="#portfolio" className="hover:text-yellow-400">Portafolio</a>
-            <a href="#contact" className="hover:text-yellow-400">Contacto</a>
+            <a href="#services" className="text-white hover:text-highlight">Servicios</a>
+            <a href="#portfolio" className="text-white hover:text-highlight">Portafolio</a>
+            <a href="#contact" className="text-white hover:text-highlight">Contacto</a>
           </nav>
         </div>
       </header>
@@ -24,7 +25,7 @@ const App: React.FC = () => {
         <div className="h-full flex flex-col justify-center items-center bg-black bg-opacity-50 text-center text-white px-6">
           <h2 className="text-4xl md:text-6xl font-bold mb-4">Diseñamos tus ideas</h2>
           <p className="text-lg md:text-2xl mb-6">Creamos diseños únicos y personalizados para destacar tu marca.</p>
-          <a href="#contact" className="bg-yellow-500 hover:bg-yellow-600 text-black py-2 px-4 rounded-lg font-semibold">
+          <a href="#contact" className="bg-primary text-accent py-2 px-4 rounded-lg font-semibold hover:bg-highlight">
             Contáctanos
           </a>
         </div>

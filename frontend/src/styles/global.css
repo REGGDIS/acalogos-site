@@ -1,0 +1,38 @@
+:root {
+  --primary-red: rgb(254, 0, 0);
+  --primary-black: #000000;
+  --primary-white: #ffffff;
+
+  --secondary-light-gray: #f2f2f2;
+  --secondary-dark-gray: #333333;
+
+  --accent-yellow: #f9c500;
+  --accent-gray: #828282;
+}
+
+body {
+  font-family: "Poppins", sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: var(--primary-white);
+  color: var(--primary-black);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: var(--primary-black);
+}
+
+a {
+  color: var(--primary-red);
+  text-decoration: none;
+  transition: color 0.3s ease;
+}
+
+a:hover {
+  color: var(--accent-yellow);
+}
