@@ -21,8 +21,8 @@ const App: React.FC = () => {
       </header>
 
       {/* Hero Section */}
-      <section className="bg-cover bg-center h-screen" style={{ backgroundImage: "url('https://via.placeholder.com/1920x1080')" }}>
-        <div className="h-full flex flex-col justify-center items-center bg-black bg-opacity-50 text-center text-white px-6">
+      <section className="bg-cover bg-center h-screen" style={{ backgroundImage: "url('/assets/images/hero/hero7.webp')" }}>
+        <div className="h-full flex flex-col justify-center items-center bg-white bg-opacity-15 text-center text-white px-6">
           <h2 className="text-4xl md:text-6xl font-bold mb-4">Diseñamos tus ideas</h2>
           <p className="text-lg md:text-2xl mb-6">Creamos diseños únicos y personalizados para destacar tu marca.</p>
           <a href="#contact" className="bg-primary text-accent py-2 px-4 rounded-lg font-semibold hover:bg-highlight">
@@ -34,7 +34,6 @@ const App: React.FC = () => {
       {/* Sección Servicios */}
       <section id="services" className="py-16 bg-white">
         <div className="max-w-7xl mx-auto px-6 text-center">
-          <h3 className="text-3xl font-bold mb-8">Nuestros Servicios</h3>
           {/* Aquí se inserta el componente Servicios */}
           <Servicios />
         </div>
