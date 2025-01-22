@@ -3,6 +3,7 @@ import Servicios from './components/Servicios';
 import Portfolio from './components/Portfolio';
 import Contacto from './components/Contacto';
 import HeroSection from './components/HeroSection';
+import Footer from './components/Footer';
 
 
 const App: React.FC = () => {
@@ -35,7 +36,6 @@ const App: React.FC = () => {
       {/* Sección Servicios */}
       <section id="services" className="py-16 bg-white">
         <div className="max-w-7xl mx-auto px-6 text-center">
-          {/* Aquí se inserta el componente Servicios */}
           <Servicios />
         </div>
       </section>
@@ -49,11 +49,7 @@ const App: React.FC = () => {
       </section>
 
       {/* Footer */}
-      <footer className="bg-gray-900 text-white py-4">
-        <div className="max-w-7xl mx-auto text-center">
-          <p>&copy; 2025 Roberto Emilio González Guzmán. Todos los derechos reservados.</p>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 };
