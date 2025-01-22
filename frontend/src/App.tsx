@@ -2,7 +2,7 @@ import React from 'react';
 import Servicios from './components/Servicios';
 import Portfolio from './components/Portfolio';
 import Contacto from './components/Contacto';
-//import './styles/App.css';
+import HeroSection from './components/HeroSection';
 
 
 const App: React.FC = () => {
@@ -21,15 +21,7 @@ const App: React.FC = () => {
       </header>
 
       {/* Hero Section */}
-      <section className="bg-cover bg-center h-screen" style={{ backgroundImage: "url('/assets/images/hero/hero7.webp')" }}>
-        <div className="h-full flex flex-col justify-center items-center bg-white bg-opacity-15 text-center text-white px-6">
-          <h2 className="text-4xl md:text-6xl font-bold mb-4">Diseñamos tus ideas</h2>
-          <p className="text-lg md:text-2xl mb-6">Creamos diseños únicos y personalizados para destacar tu marca.</p>
-          <a href="#contact" className="bg-primary text-accent py-2 px-4 rounded-lg font-semibold hover:bg-highlight">
-            Contáctanos
-          </a>
-        </div>
-      </section>
+      <HeroSection />
 
       {/* Sección Servicios */}
       <section id="services" className="py-16 bg-white">
