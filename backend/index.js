@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import fs from 'fs/promises';
 import nodemailer from 'nodemailer';
 
 // Configurar __dirname manualmente
@@ -88,45 +89,17 @@ app.post('/contacto', async (req, res) => {
 });
 
 // Ruta para obtener servicios de impresión
-app.get('/servicios', (req, res) => {
-    const servicios = [
-        {
-            id: 1,
-            nombre: 'Impresión de pendones',
-            descripcion: 'Impresión de alta calidad para pendones en todo tipo de materiales.',
-            precio: 'Consultar',
-            imagen: '/assets/images/servicios/pendones-fullsize.webp'
-        },
-        {
-            id: 2,
-            nombre: 'Corte de letras en plotter',
-            descripcion: 'Corte de letras y figuras en plotter para decoración de interiores y exteriores.',
-            precio: 'Consultar',
-            imagen: '/assets/images/servicios/corte-plotter-fullsize.webp'
-        },
-        {
-            id: 3,
-            nombre: 'Impresión de autoadhesivos',
-            descripcion: 'Impresión de autoadhesivos de alta calidad para decoración y publicidad.',
-            precio: 'Consultar',
-            imagen: '/assets/images/servicios/autoadhesivos-fullsize.webp'
-        },
-        {
-            id: 4,
-            nombre: 'Impresión de letreros',
-            descripcion: 'Impresión personalizada de letreros para empresas y eventos.',
-            precio: 'Consultar',
-            imagen: '/assets/images/servicios/impresiones-fullsize.webp'
-        },
-        {
-            id: 5,
-            nombre: 'Empavonado de vidrios (vinilado)',
-            descripcion: 'Decoración y privacidad con vinilos empavonados para ventanas y oficinas.',
-            precio: 'Consultar',
-            imagen: '/assets/images/servicios/empavonado-fullsize.webp'
-        }
-    ];
-    res.json({ status: 'success', data: servicios });
+app.get('/servicios', async (req, res) => {
+    try {
+        const filePath = path.join(__dirname, 'src', 'data', 'services.json');
+        const data = await fs.readFile(filePath, 'utf-8');
+        const servicios = JSON.parse(data);
+
+        res.json({ status: 'success', data: servicios });
+    } catch (error) {
+        console.error('Error al leer services.json:', error);
+        res.status(500).json({ status: 'error', message: 'No se pudieron obtener los servicios.' });
+    }
 });
 
 // Ruta para consultar sobre proyectos personalizados
