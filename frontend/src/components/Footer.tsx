@@ -39,7 +39,7 @@ const Footer: React.FC = () => {
                         <h3 className="text-lg font-bold mb-4">Nuestra ubicación</h3>
                         <div className="relative h-40 md:h-56">
                             <iframe
-                                src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3153.8354345096166!2d-122.41941568468107!3d37.77492967975983!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x808581515c5f4e13%3A0xf519b9e1209b1190!2sSan%20Francisco%2C%20CA%2C%20EE.%20UU.!5e0!3m2!1ses!2smx!4v1689241463093!5m2!1ses!2smx"
+                                src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3167.1484623281362!2d-72.35132879022821!3d-37.45721646455567!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x966bdd69e6d4dbcd%3A0x7c9fb9db650f6c98!2sChorrillos%20280%2C%20Los%20Angeles%2C%20Los%20%C3%81ngeles%2C%20B%C3%ADo%20B%C3%ADo!5e0!3m2!1ses-419!2scl!4v1737638649857!5m2!1ses-419!2scl"
                                 title="Mapa de ubicación"
                                 className="absolute inset-0 w-full h-full border-none"
                                 allowFullScreen
