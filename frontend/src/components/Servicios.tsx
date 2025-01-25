@@ -6,6 +6,7 @@ import { Navigation, Pagination } from 'swiper/modules';
 import 'swiper/css';
 import 'swiper/css/navigation';
 import 'swiper/css/pagination';
+import '../styles/modal.css';
 
 // Configuración del Modal para que se monte en el root
 Modal.setAppElement('#root');
@@ -84,8 +85,8 @@ const Servicios: React.FC = () => {
                 isOpen={modalIsOpen}
                 onRequestClose={closeModal}
                 contentLabel="Detalles del servicio"
-                className="max-w-4xl mx-auto bg-white p-8 rounded-lg shadow-lg relative"
-                overlayClassName="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"
+                className="modal"
+                overlayClassName="overlay"
             >
                 {currentServicio && (
                     <div>
