@@ -4,6 +4,7 @@
     "nombre": "Impresión de pendones",
     "descripcion": "Impresión de alta calidad para pendones en todo tipo de materiales. Ideal para publicidad exterior e interior, ferias, eventos y más.",
     "precio": "Consultar",
+    "categoria": ["pendones", "impresiones"],
     "imagen": "/assets/images/servicios/pendones-fullsize.webp",
     "imagenesAdicionales": ["/assets/images/servicios/pendones-fullsize.webp", "/assets/images/servicios/pendones2.webp"]
   },
@@ -12,6 +13,7 @@
     "nombre": "Corte de letras en plotter",
     "descripcion": "Corte de letras y figuras en plotter para decoración de interiores y exteriores. Ofrecemos precisión y versatilidad en cada diseño.",
     "precio": "Consultar",
+    "categoria": ["letras", "corte", "vinilos"],
     "imagen": "/assets/images/servicios/corte-plotter-fullsize.webp",
     "imagenesAdicionales": ["/assets/images/servicios/pendones-fullsize.webp", "/assets/images/servicios/pendones2.webp"]
   },
@@ -20,6 +22,7 @@
     "nombre": "Impresión de autoadhesivos",
     "descripcion": "Impresión de autoadhesivos de alta calidad, ideales para decoración de espacios, ventanas, vehículos o cualquier superficie plana.",
     "precio": "Consultar",
+    "categoria": ["autoadhesivos", "calcomanias"],
     "imagen": "/assets/images/servicios/autoadhesivos-fullsize.webp",
     "imagenesAdicionales": ["/assets/images/servicios/pendones-fullsize.webp", "/assets/images/servicios/pendones2.webp"]
   },
@@ -28,6 +31,7 @@
     "nombre": "Impresión de letreros",
     "descripcion": "Creación de letreros publicitarios resistentes y llamativos para destacar tu marca en cualquier ubicación.",
     "precio": "Consultar",
+    "categoria": ["letreros", "impresiones"],
     "imagen": "/assets/images/servicios/impresiones-fullsize.webp",
     "imagenesAdicionales": ["/assets/images/servicios/pendones-fullsize.webp", "/assets/images/servicios/pendones2.webp"]
   },
@@ -36,6 +40,7 @@
     "nombre": "Empavonado de vidrios (vinilado)",
     "descripcion": "Decoración de vidrios con vinilos empavonados para mejorar la privacidad y dar un toque elegante a tus espacios.",
     "precio": "Consultar",
+    "categoria": ["empavonados", "vinilos"],
     "imagen": "/assets/images/servicios/empavonado-fullsize.webp",
     "imagenesAdicionales": ["/assets/images/servicios/pendones-fullsize.webp", "/assets/images/servicios/pendones2.webp"]
   }
