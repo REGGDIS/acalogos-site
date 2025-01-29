@@ -1,52 +1,42 @@
+import express, { Express, Request, Response, NextFunction, RequestHandler } from 'express';
 import dotenv from 'dotenv';
-import express from 'express';
 import cors from 'cors';
-import { fileURLToPath } from 'url';
-import path from 'path';
-import fs from 'fs/promises';
 import nodemailer from 'nodemailer';
-
-// Configurar __dirname manualmente
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { pool } from './db.js';
+import { ContactoBody } from './types.js';
+import path from 'path';
 
 dotenv.config();
-
-// Verificar que las variables de entorno se están cargando correctamente
-console.log('Usuario de Etheral:', process.env.ETHEREAL_USER);
-console.log('Contraseña de Etheral:', process.env.ETHEREAL_PASS);
-
-// Validar variables de entorno
-if (!process.env.ETHEREAL_USER || !process.env.ETHEREAL_PASS) {
-    console.error('ERROR: Las variables ETHEREAL_USER y ETHEREAL_PASS no están definidas en el archivo .env');
-    process.exit(1);
-}
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Middleware para habilitar CORS y parsear JSON
+// Validar variables de entorno
+const validateEnv = () => {
+    if (!process.env.ETHEREAL_USER || !process.env.ETHEREAL_PASS) {
+        console.error('ERROR: Las variables ETHEREAL_USER y ETHEREAL_PASS no están definidas en el archivo .env');
+        process.exit(1);
+    }
+};
+validateEnv();
+
+// Middlewares
 app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
-
-// Middleware para servir archivos estáticos
-app.use('/assets', express.static(path.join(__dirname, '../frontend/public/assets')));
+app.use('/assets', express.static(path.resolve('..', 'frontend', 'public', 'assets')));
 
 // Ruta raíz
-app.get('/', (req, res) => {
+app.get('/', (req: Request, res: Response) => {
     res.send('Bienvenido al backend de ACA-Logos');
 });
 
 // Ruta para enviar correos
-app.post('/contacto', async (req, res) => {
+app.post('/contacto', async (req: Request<{}, {}, ContactoBody>, res: Response): Promise<void> => {
     const { nombre, email, mensaje } = req.body;
 
-    // Verificar si los datos están llegando correctamente
-    console.log('Solicitud recibida:', req.body); // Log de los datos recibidos
-
     if (!nombre || !email || !mensaje) {
-        console.error('Error: Faltan datos en la solicitud:', req.body);
-        return res.status(400).json({ status: 'error', message: 'Por favor, completa todos los campos.' });
+        res.status(400).json({ status: 'error', message: 'Por favor, completa todos los campos.' });
+        return;
     }
 
     try {
@@ -57,7 +47,7 @@ app.post('/contacto', async (req, res) => {
             auth: {
                 user: process.env.ETHEREAL_USER,
                 pass: process.env.ETHEREAL_PASS,
-            }
+            },
         });
 
         // Opciones del correo
@@ -73,8 +63,6 @@ app.post('/contacto', async (req, res) => {
 
         // Enviar correo
         const info = await transporter.sendMail(mailOptions);
-
-        // Log de la respuesta de Nodemailer
         console.log('Correo enviado con éxito:', info.messageId);
 
         res.status(200).json({
@@ -88,22 +76,20 @@ app.post('/contacto', async (req, res) => {
     }
 });
 
-// Ruta para obtener servicios de impresión
-app.get('/servicios', async (req, res) => {
+// Ruta para obtener servicios desde PostgreSQL
+app.get('/servicios', async (req: Request, res: Response) => {
     try {
-        const filePath = path.join(__dirname, 'src', 'data', 'services.json');
-        const data = await fs.readFile(filePath, 'utf-8');
-        const servicios = JSON.parse(data);
-
-        res.json({ status: 'success', data: servicios });
+        // Ejecutar la consulta en PostgreSQL
+        const result = await pool.query('SELECT * FROM servicios ORDER BY id');
+        res.json({ status: 'success', data: result.rows });
     } catch (error) {
-        console.error('Error al leer services.json:', error);
+        console.error('Error al consultar la base de datos:', error);
         res.status(500).json({ status: 'error', message: 'No se pudieron obtener los servicios.' });
     }
 });
 
 // Ruta para consultar sobre proyectos personalizados
-app.get('/proyectos', (req, res) => {
+app.get('/proyectos', (req: Request, res: Response) => {
     const proyectos = [
         { id: 1, nombre: 'Decoración de oficinas', descripción: 'Decoración de oficinas corporativas con impresiones personalizadas.' },
         { id: 2, nombre: 'Publicidad en eventos', descripción: 'Impresiones personalizadas para publicidad en eventos y ferias.' },
@@ -111,8 +97,8 @@ app.get('/proyectos', (req, res) => {
     res.json({ status: 'success', data: proyectos });
 });
 
-// Ruta para obtener información de contacto (GET)
-app.get('/contacto-info', (req, res) => {
+// Ruta para obtener información de contacto
+app.get('/contacto-info', (req: Request, res: Response) => {
     const contacto = {
         telefono: '123-456-7890',
         email: 'contacto@empresa.com',
@@ -121,15 +107,15 @@ app.get('/contacto-info', (req, res) => {
     res.json({ status: 'success', data: contacto });
 });
 
-// Ruta para crear un nuevo proyecto (POST)
-app.post('/proyectos', (req, res) => {
+// Ruta para crear un nuevo proyecto
+app.post('/proyectos', (req: Request<{}, {}, Record<string, any>>, res: Response) => {
     const nuevoProyecto = req.body; // Aquí recibiríamos la data enviada por el cliente
     console.log('Nuevo proyecto recibido:', nuevoProyecto);
     res.status(201).json({ status: 'success', message: 'Proyecto creado con éxito', data: nuevoProyecto });
 });
 
 // Middleware para manejo de errores
-app.use((err, req, res, next) => {
+app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
     console.error(err.stack);
     res.status(500).json({ status: 'error', message: 'Algo salió mal, por favor intenta nuevamente.' });
 })

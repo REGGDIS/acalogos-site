@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ESNext", // Apunta a la última versión de JavaScript
+    "module": "NodeNext", // Para trabajar con ES Modules en Node.js
+    "moduleResolution": "NodeNext", // Resolución de módulos tipo Node
+    "outDir": "./dist", // Carpeta de salida para los archivos compilados
+    "rootDir": "./src", // Carpeta donde está tu código fuente
+    "strict": true, // Activa comprobaciones estrictas
+    "esModuleInterop": true, // Para usar módulos CommonJS como `import x from 'x'`
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true, // Evita errores con tipos de dependencias
+    "resolveJsonModule": true // Soporte para importar archivos JSON
+  },
+  "include": ["src"], // Compila solo la carpeta src
+  "exclude": ["node_modules", "dist", "src/types.ts"] // Excluye estas carpetas
+}

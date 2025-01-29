@@ -17,7 +17,7 @@ interface Servicio {
   precio: string;
   imagen: string;
   categoria?: string;
-  imagenesAdicionales?: string[];
+  imagenes_adicionales?: string[];
 }
 
 const Servicios: React.FC = () => {
@@ -38,6 +38,7 @@ const Servicios: React.FC = () => {
     axios
       .get('http://localhost:3000/servicios')
       .then((response) => {
+        console.log("Servicios recibidos del backend:", response.data);
         setServicios(response.data.data);
       })
       .catch((error) => {
@@ -48,6 +49,7 @@ const Servicios: React.FC = () => {
 
   // Función para abrir/cerrar modal
   const openModal = (servicio: Servicio) => {
+    console.log("Abriendo modal para:", servicio);
     setCurrentServicio(servicio);
     setModalIsOpen(true);
   };
@@ -167,10 +169,10 @@ const Servicios: React.FC = () => {
               modules={[Navigation, Pagination]}
               className="w-full h-80"
             >
-              {currentServicio.imagenesAdicionales?.map((img, index) => (
+              {currentServicio.imagenes_adicionales?.map((img, index) => (
                 <SwiperSlide key={index}>
                   <img
-                    src={img}
+                    src={`/assets/images/servicios/${img}`}
                     alt={`Imagen adicional ${index + 1}`}
                     className="w-full h-full object-cover rounded-lg"
                   />
