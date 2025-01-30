@@ -167,14 +167,14 @@ const Servicios: React.FC = () => {
               navigation
               pagination={{ clickable: true }}
               modules={[Navigation, Pagination]}
-              className="w-full h-80"
+              className="w-full max-w-lg mx-auto"
             >
               {currentServicio.imagenes_adicionales?.map((img, index) => (
-                <SwiperSlide key={index}>
+                <SwiperSlide key={index} className="flex justify-center items-center">
                   <img
-                    src={`/assets/images/servicios/${img}`}
+                    src={img.startsWith("/") ? img : `/assets/images/servicios/${img}`}
                     alt={`Imagen adicional ${index + 1}`}
-                    className="w-full h-full object-cover rounded-lg"
+                    className="w-full h-auto max-h-[70vh] object-contain rounded-lg"
                   />
                 </SwiperSlide>
               ))}
