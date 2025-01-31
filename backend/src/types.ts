@@ -3,3 +3,7 @@ export interface ContactoBody {
     email: string;
     mensaje: string;
 }
+
+export interface ImagenBody {
+    imagen: string;
+}

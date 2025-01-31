@@ -5,6 +5,7 @@ import nodemailer from 'nodemailer';
 import { pool } from './db.js';
 import { ContactoBody } from './types.js';
 import path from 'path';
+import serviciosRoutes from './routes/servicios.js';
 
 dotenv.config();
 
@@ -24,6 +25,7 @@ validateEnv();
 app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
 app.use('/assets', express.static(path.resolve('..', 'frontend', 'public', 'assets')));
+app.use('/servicios', serviciosRoutes);
 
 // Ruta raíz
 app.get('/', (req: Request, res: Response) => {
