@@ -22,8 +22,8 @@ const AdminLogin = () => {
 
             const data = await response.json();
             if (response.ok) {
-                localStorage.setItem("token", data.token); // Guardar token
-                navigate("/dashboard"); // Redirigir al panel de control
+                sessionStorage.setItem("token", data.token); // Guardar token
+                navigate("/admin/panel"); // Redirigir al panel de control
             } else {
                 setError(data.message || "Credenciales incorrectas");
             }

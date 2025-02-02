@@ -5,7 +5,9 @@ import Contacto from './components/Contacto';
 import HeroSection from './components/HeroSection';
 import Footer from './components/Footer';
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import AdminLogin from './pages/AdminLogin'; // Página de login del administrador
+import AdminLogin from './pages/AdminLogin';
+import AdminPanel from './pages/AdminPanel';
+import ProtectedRoute from "./components/ProtectedRoute";
 
 const App: React.FC = () => {
   return (
@@ -60,6 +62,11 @@ const App: React.FC = () => {
           }
         />
         <Route path="/admin" element={<AdminLogin />} />
+
+        {/* Rutas protegidas */}
+        <Route element={<ProtectedRoute />}>
+          <Route path="/admin/panel" element={<AdminPanel />} />
+        </Route>
       </Routes>
     </Router>
   );
