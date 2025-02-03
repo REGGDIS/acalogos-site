@@ -26,7 +26,7 @@ router.post("/login", asyncHandler(async (req, res) => {
         return;
     }
     // Generar token
-    const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "2h" });
+    const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "5s" });
     res.json({ status: "success", token });
 }));
 export default router;

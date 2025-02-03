@@ -1,4 +1,4 @@
-import express, { Express, Request, Response, NextFunction, RequestHandler } from 'express';
+import express, { Express, Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import nodemailer from 'nodemailer';
@@ -7,6 +7,7 @@ import { ContactoBody } from './types.js';
 import path from 'path';
 import serviciosRoutes from './routes/servicios.js';
 import authRoutes from "./routes/auth.js";
+import { verifyToken } from './middlewares/authMiddleware.js';
 
 dotenv.config();
 
@@ -26,8 +27,12 @@ validateEnv();
 app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
 app.use('/assets', express.static(path.resolve('..', 'frontend', 'public', 'assets')));
-app.use('/servicios', serviciosRoutes);
-app.use("/admin", authRoutes); // Rutas de autenticación
+
+// **Rutas protegidas**
+app.use('/servicios', verifyToken, serviciosRoutes);
+
+// **Rutas públicas**
+app.use("/admin", authRoutes);
 
 // Ruta raíz
 app.get('/', (req: Request, res: Response) => {
@@ -77,18 +82,6 @@ app.post('/contacto', async (req: Request<{}, {}, ContactoBody>, res: Response):
     } catch (error) {
         console.error('Error al enviar el correo:', error);
         res.status(500).json({ status: 'error', message: 'No se pudo enviar el correo, intenta nuevamente.' });
-    }
-});
-
-// Ruta para obtener servicios desde PostgreSQL
-app.get('/servicios', async (req: Request, res: Response) => {
-    try {
-        // Ejecutar la consulta en PostgreSQL
-        const result = await pool.query('SELECT * FROM servicios ORDER BY id');
-        res.json({ status: 'success', data: result.rows });
-    } catch (error) {
-        console.error('Error al consultar la base de datos:', error);
-        res.status(500).json({ status: 'error', message: 'No se pudieron obtener los servicios.' });
     }
 });
 

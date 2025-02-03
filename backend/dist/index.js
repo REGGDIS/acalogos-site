@@ -2,10 +2,10 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import nodemailer from 'nodemailer';
-import { pool } from './db.js';
 import path from 'path';
 import serviciosRoutes from './routes/servicios.js';
 import authRoutes from "./routes/auth.js";
+import { verifyToken } from './middlewares/authMiddleware.js';
 dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
@@ -21,8 +21,10 @@ validateEnv();
 app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
 app.use('/assets', express.static(path.resolve('..', 'frontend', 'public', 'assets')));
-app.use('/servicios', serviciosRoutes);
-app.use("/admin", authRoutes); // Rutas de autenticación
+// **Rutas protegidas**
+app.use('/servicios', verifyToken, serviciosRoutes);
+// **Rutas públicas**
+app.use("/admin", authRoutes);
 // Ruta raíz
 app.get('/', (req, res) => {
     res.send('Bienvenido al backend de ACA-Logos');
@@ -66,18 +68,6 @@ app.post('/contacto', async (req, res) => {
     catch (error) {
         console.error('Error al enviar el correo:', error);
         res.status(500).json({ status: 'error', message: 'No se pudo enviar el correo, intenta nuevamente.' });
-    }
-});
-// Ruta para obtener servicios desde PostgreSQL
-app.get('/servicios', async (req, res) => {
-    try {
-        // Ejecutar la consulta en PostgreSQL
-        const result = await pool.query('SELECT * FROM servicios ORDER BY id');
-        res.json({ status: 'success', data: result.rows });
-    }
-    catch (error) {
-        console.error('Error al consultar la base de datos:', error);
-        res.status(500).json({ status: 'error', message: 'No se pudieron obtener los servicios.' });
     }
 });
 // Ruta para consultar sobre proyectos personalizados

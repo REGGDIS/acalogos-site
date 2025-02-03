@@ -1,15 +1,37 @@
 import jwt from "jsonwebtoken";
 export const verifyToken = (req, res, next) => {
     const token = req.headers.authorization?.split(" ")[1];
+    console.log("Verificando token:", token);
     if (!token) {
-        return res.status(403).json({ message: "Aceso denegado" });
+        console.log("⛔ No hay token en la petición.");
+        res.status(403).json({ message: "Acceso denegado" });
+        return;
     }
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = decoded; // Almacena la info en la solicitud
+        // Decodificar el token sin verificar aún
+        const decoded = jwt.decode(token, { complete: true });
+        console.log("Token decodificado:", decoded);
+        if (!decoded) {
+            console.log("⛔ Token inválido (no se pudo decodificar).");
+            res.status(401).json({ message: "Token inválido" });
+            return;
+        }
+        // Validar manualmente la expiración
+        const now = Math.floor(Date.now() / 1000); // Tiempo actual en segundos
+        console.log("Tiempo actual:", now, "Expiración del token:", decoded.payload.exp);
+        if (decoded.payload.exp && decoded.payload.exp < now) {
+            console.log("⛔ Token expirado.");
+            res.status(401).json({ message: "Token expirado" });
+            return;
+        }
+        // Ahora verificamos con la clave secreta
+        req.user = jwt.verify(token, process.env.JWT_SECRET);
+        console.log("✅ Token válido. Acceso concedido.");
         next();
     }
     catch (error) {
-        return res.status(401).json({ message: "Token inválido o expirado " });
+        console.error("❌ Error en la validación del token:", error);
+        res.status(401).json({ message: "Token inválido o expirado" });
+        return;
     }
 };
