@@ -40,7 +40,7 @@ router.post(
         }
 
         // Generar token
-        const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "5s" });
+        const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "2h" });
 
         res.json({ status: "success", token });
     })

@@ -1,6 +1,7 @@
 import { Router, Request, Response, RequestHandler } from "express";
 import { pool } from "../db.js";
 import { ImagenBody } from "../types.js";
+import { verifyToken } from "../middlewares/authMiddleware.js";
 
 const router = Router();
 
@@ -54,6 +55,6 @@ const actualizarImagenes: RequestHandler = async (req, res, next) => {
 };
 
 // Asigna la función al endpoint
-router.put('/:id/imagenes', actualizarImagenes);
+router.put('/:id/imagenes', verifyToken, actualizarImagenes);
 
 export default router;

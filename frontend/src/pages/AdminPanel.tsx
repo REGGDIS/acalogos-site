@@ -20,19 +20,47 @@ const AdminPanel = () => {
 
     // Verificar si el usuario está autenticado
     useEffect(() => {
-        const token = localStorage.getItem("token");
+        const token = sessionStorage.getItem("token");
+
         if (!token) {
-            navigate("/admin"); // Redirigir al login si no hay token
+            console.log("🔴 No hay token, redirigiendo al login...");
+            navigate("/admin");
+            return;
+        }
+
+        try {
+            // Decodificar el token y verificar expiración
+            const tokenData = JSON.parse(atob(token.split(".")[1]));
+            const exp = tokenData.exp * 1000; // Convertir a milisegundos
+            const now = Date.now();
+
+            if (now >= exp) {
+                console.log("❌ Token expirado, cerrando sesión...");
+                sessionStorage.removeItem("token");
+                navigate("/admin");
+                return;
+            }
+        } catch (error) {
+            console.error("❌ Error al procesar el token:", error);
+            sessionStorage.removeItem("token");
+            navigate("/admin");
+            return;
         }
     }, [navigate]);
 
     // Obtener la lista de servicios
     useEffect(() => {
         const fetchServicios = async () => {
-            const response = await fetch("http://localhost:3000/servicios");
-            const data = await response.json();
-            if (data.status === "success") {
-                setServicios(data.data);
+            try {
+                const response = await fetch("http://localhost:3000/servicios");
+                const data = await response.json();
+                if (data.status === "success") {
+                    setServicios(data.data);
+                } else {
+                    console.error("⚠️ Error al obtener servicios:", data.message);
+                }
+            } catch (error) {
+                console.error("⚠️ Error de conexión con el backend:", error);
             }
         };
         fetchServicios();
@@ -42,7 +70,13 @@ const AdminPanel = () => {
     const handleAddImage = async () => {
         if (!selectedService || !newImage) return;
 
-        const token = localStorage.getItem("token");
+        const token = sessionStorage.getItem("token");
+        if (!token) {
+            alert("🔴 Sesión expirada. Inicia sesión nuevamente.");
+            navigate("/admin");
+            return;
+        }
+
         const response = await fetch(`http://localhost:3000/servicios/${selectedService}/imagenes`, {
             method: "PUT",
             headers: {
@@ -54,10 +88,10 @@ const AdminPanel = () => {
 
         const data = await response.json();
         if (data.status === "success") {
-            alert("Imagen añadida correctamente");
+            alert("✅ Imagen añadida correctamente");
             setNewImage("");
         } else {
-            alert("Error al añadir la imagen");
+            alert("⚠️ Error al añadir la imagen: " + data.message);
         }
     };
 
@@ -67,7 +101,7 @@ const AdminPanel = () => {
 
             <label className="block text-lg font-medium">Seleccionar servicio:</label>
             <select
-                className="border p-2 rounded-md mb-4  w-full"
+                className="border p-2 rounded-md mb-4 w-full"
                 onChange={(e) => setSelectedService(e.target.value)}
             >
                 <option value="">Seleccione un servicio</option>

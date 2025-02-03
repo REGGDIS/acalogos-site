@@ -5,7 +5,6 @@ import nodemailer from 'nodemailer';
 import path from 'path';
 import serviciosRoutes from './routes/servicios.js';
 import authRoutes from "./routes/auth.js";
-import { verifyToken } from './middlewares/authMiddleware.js';
 dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
@@ -22,7 +21,7 @@ app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
 app.use('/assets', express.static(path.resolve('..', 'frontend', 'public', 'assets')));
 // **Rutas protegidas**
-app.use('/servicios', verifyToken, serviciosRoutes);
+app.use('/servicios', serviciosRoutes);
 // **Rutas públicas**
 app.use("/admin", authRoutes);
 // Ruta raíz

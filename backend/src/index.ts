@@ -29,7 +29,7 @@ app.use(express.json());
 app.use('/assets', express.static(path.resolve('..', 'frontend', 'public', 'assets')));
 
 // **Rutas protegidas**
-app.use('/servicios', verifyToken, serviciosRoutes);
+app.use('/servicios', serviciosRoutes);
 
 // **Rutas públicas**
 app.use("/admin", authRoutes);

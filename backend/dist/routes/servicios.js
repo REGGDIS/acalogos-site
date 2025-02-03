@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { pool } from "../db.js";
+import { verifyToken } from "../middlewares/authMiddleware.js";
 const router = Router();
 // Ruta para obtener todos los servicios
 router.get('/', async (req, res) => {
@@ -43,5 +44,5 @@ const actualizarImagenes = async (req, res, next) => {
     }
 };
 // Asigna la función al endpoint
-router.put('/:id/imagenes', actualizarImagenes);
+router.put('/:id/imagenes', verifyToken, actualizarImagenes);
 export default router;
