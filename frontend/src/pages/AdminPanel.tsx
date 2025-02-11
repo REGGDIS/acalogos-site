@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
 
 // Definir la interfaz para los servicios
 interface Servicio {
@@ -15,83 +16,65 @@ interface Servicio {
 const AdminPanel = () => {
     const [servicios, setServicios] = useState<Servicio[]>([]);
     const [selectedService, setSelectedService] = useState<string | null>(null);
-    const [newImage, setNewImage] = useState<string>("");
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const navigate = useNavigate();
 
     // Verificar si el usuario está autenticado
     useEffect(() => {
         const token = sessionStorage.getItem("token");
-
         if (!token) {
-            console.log("🔴 No hay token, redirigiendo al login...");
-            navigate("/admin");
-            return;
-        }
-
-        try {
-            // Decodificar el token y verificar expiración
-            const tokenData = JSON.parse(atob(token.split(".")[1]));
-            const exp = tokenData.exp * 1000; // Convertir a milisegundos
-            const now = Date.now();
-
-            if (now >= exp) {
-                console.log("❌ Token expirado, cerrando sesión...");
-                sessionStorage.removeItem("token");
-                navigate("/admin");
-                return;
-            }
-        } catch (error) {
-            console.error("❌ Error al procesar el token:", error);
-            sessionStorage.removeItem("token");
-            navigate("/admin");
-            return;
+            navigate("/admin"); // Redirigir al login si no hay token
         }
     }, [navigate]);
 
     // Obtener la lista de servicios
     useEffect(() => {
         const fetchServicios = async () => {
-            try {
-                const response = await fetch("http://localhost:3000/servicios");
-                const data = await response.json();
-                if (data.status === "success") {
-                    setServicios(data.data);
-                } else {
-                    console.error("⚠️ Error al obtener servicios:", data.message);
-                }
-            } catch (error) {
-                console.error("⚠️ Error de conexión con el backend:", error);
+            const response = await fetch("http://localhost:3000/servicios");
+            const data = await response.json();
+            if (data.status === "success") {
+                setServicios(data.data);
             }
         };
         fetchServicios();
     }, []);
 
-    // Función para agregar una imagen
-    const handleAddImage = async () => {
-        if (!selectedService || !newImage) return;
+    // Función para manejar la selección de archivos
+    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        if (event.target.files && event.target.files.length > 0) {
+            setSelectedFile(event.target.files[0]);
+        }
+    };
+
+    // Función para subir la imagen al servidor
+    const handleUpload = async () => {
+        if (!selectedService || !selectedFile) return;
 
         const token = sessionStorage.getItem("token");
-        if (!token) {
-            alert("🔴 Sesión expirada. Inicia sesión nuevamente.");
-            navigate("/admin");
-            return;
-        }
+        const formData = new FormData();
+        formData.append("imagen", selectedFile);
 
-        const response = await fetch(`http://localhost:3000/servicios/${selectedService}/imagenes`, {
-            method: "PUT",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ imagen: newImage }),
-        });
+        try {
+            const response = await axios.put(
+                `http://localhost:3000/servicios/${selectedService}/imagenes`,
+                formData,
+                {
+                    headers: {
+                        "Content-Type": "multipart/form-data",
+                        Authorization: `Bearer ${token}`,
+                    },
+                }
+            );
 
-        const data = await response.json();
-        if (data.status === "success") {
-            alert("✅ Imagen añadida correctamente");
-            setNewImage("");
-        } else {
-            alert("⚠️ Error al añadir la imagen: " + data.message);
+            if (response.data.status === "success") {
+                alert("Imagen subida correctamente");
+                setSelectedFile(null);
+            } else {
+                alert("Error al subir la imagen");
+            }
+        } catch (error) {
+            console.error("Error al subir la imagen:", error);
+            alert("Ocurrió un error al subir la imagen");
         }
     };
 
@@ -112,19 +95,19 @@ const AdminPanel = () => {
                 ))}
             </select>
 
-            <label className="block text-lg font-medium">URL de la imagen:</label>
+            <label className="block text-lg font-medium">Subir imagen:</label>
             <input
-                type="text"
+                type="file"
+                accept="image/*"
                 className="border p-2 rounded-md mb-4 w-full"
-                value={newImage}
-                onChange={(e) => setNewImage(e.target.value)}
+                onChange={handleFileChange}
             />
 
             <button
-                onClick={handleAddImage}
+                onClick={handleUpload}
                 className="bg-blue-500 text-white p-2 rounded-md w-full"
             >
-                Agregar Imagen
+                Subir Imagen
             </button>
         </div>
     );
