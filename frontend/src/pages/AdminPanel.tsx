@@ -16,6 +16,7 @@ interface Servicio {
 const AdminPanel = () => {
     const [servicios, setServicios] = useState<Servicio[]>([]);
     const [selectedService, setSelectedService] = useState<string | null>(null);
+    const [selectedServiceDetails, setSelectedServiceDetails] = useState<Servicio | null>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const navigate = useNavigate();
 
@@ -38,6 +39,24 @@ const AdminPanel = () => {
         };
         fetchServicios();
     }, []);
+
+    // Obtener detalles del servicio seleccionado, incluyendo las imágenes adicionales
+    useEffect(() => {
+        if (selectedService) {
+            axios
+                .get(`http://localhost:3000/servicios/${selectedService}`)
+                .then((response) => {
+                    if (response.data.status === "success") {
+                        setSelectedServiceDetails(response.data.data);
+                    }
+                })
+                .catch((error) => {
+                    console.error("Error al obtener detalles del servicio:", error);
+                });
+        } else {
+            setSelectedServiceDetails(null);
+        }
+    }, [selectedService]);
 
     // Función para manejar la selección de archivos
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -69,12 +88,51 @@ const AdminPanel = () => {
             if (response.data.status === "success") {
                 alert("Imagen subida correctamente");
                 setSelectedFile(null);
+                // Actualizar el listado de imágenes adicionales si existe
+                if (selectedServiceDetails) {
+                    setSelectedServiceDetails({
+                        ...selectedServiceDetails,
+                        imagenes_adicionales: response.data.data.imagenes_adicionales, // se espera que el backend devuelva la lista actualizada
+                    });
+                }
             } else {
                 alert("Error al subir la imagen");
             }
         } catch (error) {
             console.error("Error al subir la imagen:", error);
             alert("Ocurrió un error al subir la imagen");
+        }
+    };
+
+    // Función para eliminar una imagen adicional
+    const handleDeleteImage = async (img: string) => {
+        if (!selectedService) return;
+        const token = sessionStorage.getItem("token");
+        try {
+            const response = await axios.delete(
+                `http://localhost:3000/servicios/${selectedService}/imagenes`,
+                {
+                    data: { imagen: img },
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                }
+            );
+            if  (response.data.status === "success") {
+                alert("Imagen eliminada correctamente");
+                // Actualizamos el estado removiendo la imagen eliminada
+                setSelectedServiceDetails((prev) =>
+                    prev && {
+                        ...prev,
+                        imagenes_adicionales: prev.imagenes_adicionales.filter((i) => i !== img),
+                    }
+                );
+            } else {
+                alert("Error al eliminar la imagen");
+            }
+        } catch (error) {
+            console.error("Error al eliminar la imagen:", error);
+            alert("Ocurrió un error al eliminar la imagen");
         }
     };
 
@@ -109,6 +167,31 @@ const AdminPanel = () => {
             >
                 Subir Imagen
             </button>
+
+            {/* Sección para mostrar las imágenes adicionales con la opción de borrado */}
+            {selectedServiceDetails && selectedServiceDetails.imagenes_adicionales && (
+                <div>
+                    <h3 className="mt-6 text-xl font-semibold">Imágenes adicionales</h3>
+                    <div className="grid grid-cols-3 gap-4 mt-4">
+                        {selectedServiceDetails.imagenes_adicionales.map((img, index) => (
+                            <div key={index} className="relative">
+                                <img
+                                    src={img.startsWith("/") ? img : `/assets/images/servicios/${img}`}
+                                    alt={`Imagen adicional ${index + 1}`}
+                                    className="w-full h-auto object-contain rounded-lg"
+                                />
+                                <button
+                                    onClick={() => handleDeleteImage(img)}
+                                    className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
+                                    title="Eliminar imagen"
+                                >
+                                    X
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
