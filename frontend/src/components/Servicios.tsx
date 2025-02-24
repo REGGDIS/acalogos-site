@@ -1,14 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import Modal from 'react-modal';
-import { Swiper, SwiperSlide } from 'swiper/react';
-import { Navigation, Pagination } from 'swiper/modules';
-import 'swiper/css';
-import 'swiper/css/navigation';
-import 'swiper/css/pagination';
-import '../styles/modal.css';
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+import Modal from "react-modal";
+import { Swiper, SwiperSlide } from "swiper/react";
+import { Navigation, Pagination } from "swiper/modules";
+import "swiper/css";
+import "swiper/css/navigation";
+import "swiper/css/pagination";
+import "../styles/modal.css";
 
-Modal.setAppElement('#root');
+Modal.setAppElement("#root");
 
 interface Servicio {
   id: number;
@@ -23,26 +23,25 @@ interface Servicio {
 const Servicios: React.FC = () => {
   // Estado para almacenar los servicios originales
   const [servicios, setServicios] = useState<Servicio[]>([]);
-  // Estado para manejar errores
   const [error, setError] = useState<string | null>(null);
 
-  // Estados para Filtros y Búsqueda
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategoria, setSelectedCategoria] = useState<string>('todos');
+  // Estados para filtros y búsqueda
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCategoria, setSelectedCategoria] = useState<string>("todos");
 
-  // Estados para Modal
+  // Estados para el modal
   const [modalIsOpen, setModalIsOpen] = useState(false);
   const [currentServicio, setCurrentServicio] = useState<Servicio | null>(null);
 
   useEffect(() => {
     axios
-      .get('http://localhost:3000/servicios')
+      .get("http://localhost:3000/servicios")
       .then((response) => {
         console.log("Servicios recibidos del backend:", response.data);
         setServicios(response.data.data);
       })
       .catch((error) => {
-        setError('Hubo un problema al obtener los servicios.');
+        setError("Hubo un problema al obtener los servicios.");
         console.error(error);
       });
   }, []);
@@ -59,24 +58,18 @@ const Servicios: React.FC = () => {
     setModalIsOpen(false);
   };
 
-  // Filtrado
+  // Filtrado de servicios
   const serviciosFiltrados = servicios.filter((servicio) => {
-    // Verificamos si es un arreglo
-    let categoriesString = "";
-    if (Array.isArray(servicio.categoria)) {
-      // Si es un arreglo, unimos los valores en un solo string
-      categoriesString = servicio.categoria.join(" ");
-    } else if (typeof servicio.categoria === "string") {
-      // Si es un string, lo asignamos directamente
-      categoriesString = servicio.categoria;
-    }
-  
+    const categoriesString = servicio.categoria
+      ? servicio.categoria.toString().toLowerCase()
+      : "";
+
     // Filtrado por texto
     const matchText =
       servicio.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
       servicio.descripcion.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      categoriesString.toLowerCase().includes(searchTerm.toLowerCase());
-  
+      categoriesString.includes(searchTerm.toLowerCase());
+
     // Filtrado por categoría (select)
     const matchCategoria =
       selectedCategoria === "todos" ||
@@ -84,10 +77,9 @@ const Servicios: React.FC = () => {
         servicio.categoria.includes(selectedCategoria)) ||
       (typeof servicio.categoria === "string" &&
         servicio.categoria === selectedCategoria);
-  
+
     return matchText && matchCategoria;
   });
-  
 
   return (
     <section id="servicios" className="py-16 bg-gray-100">
@@ -95,7 +87,7 @@ const Servicios: React.FC = () => {
         <h2 className="text-3xl font-bold mb-8 text-center">Nuestros Servicios</h2>
         {error && <p className="text-red-500 text-center">{error}</p>}
 
-        {/* Barra de Búsqueda */}
+        {/* Barra de búsqueda y filtro */}
         <div className="flex flex-col md:flex-row items-center mb-8 gap-4">
           <input
             type="text"
@@ -105,7 +97,6 @@ const Servicios: React.FC = () => {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
 
-          {/* Filtro de Categoría */}
           <select
             className="border border-gray-300 px-4 py-2 rounded"
             value={selectedCategoria}
@@ -121,7 +112,7 @@ const Servicios: React.FC = () => {
           </select>
         </div>
 
-        {/* Lista de Servicios Filtrados */}
+        {/* Lista de Servicios */}
         <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
           {serviciosFiltrados.map((servicio) => (
             <div
@@ -130,7 +121,7 @@ const Servicios: React.FC = () => {
               onClick={() => openModal(servicio)}
             >
               <img
-                src={servicio.imagen}
+                src={`http://localhost:3000${servicio.imagen}`}
                 alt={servicio.nombre}
                 className="w-full h-48 object-cover"
               />
@@ -144,7 +135,7 @@ const Servicios: React.FC = () => {
         </div>
       </div>
 
-      {/* Modal para mostrar imágenes adicionales */}
+      {/* Modal para mostrar imágenes */}
       <Modal
         isOpen={modalIsOpen}
         onRequestClose={closeModal}
@@ -169,10 +160,20 @@ const Servicios: React.FC = () => {
               modules={[Navigation, Pagination]}
               className="w-full max-w-lg mx-auto"
             >
+              {/* 🔹 Imagen Principal */}
+              <SwiperSlide className="flex justify-center items-center">
+                <img
+                  src={`http://localhost:3000${currentServicio.imagen}`}
+                  alt="Imagen principal"
+                  className="w-full h-auto max-h-[70vh] object-contain rounded-lg"
+                />
+              </SwiperSlide>
+
+              {/* 🔹 Imágenes Adicionales */}
               {currentServicio.imagenes_adicionales?.map((img, index) => (
                 <SwiperSlide key={index} className="flex justify-center items-center">
                   <img
-                    src={img.startsWith("/") ? img : `/assets/images/servicios/${img}`}
+                    src={`http://localhost:3000${img}`}
                     alt={`Imagen adicional ${index + 1}`}
                     className="w-full h-auto max-h-[70vh] object-contain rounded-lg"
                   />

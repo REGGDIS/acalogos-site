@@ -9,7 +9,7 @@ const router = Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 // Ruta absoluta para guardar imágenes
-const uploadPath = path.join(__dirname, "../../frontend/public/assets/images/servicios");
+const uploadPath = path.join(__dirname, "../../public/assets/images/servicios");
 // Verificar si la carpeta existe, si no, crearla
 if (!fs.existsSync(uploadPath)) {
     fs.mkdirSync(uploadPath, { recursive: true });
@@ -20,7 +20,7 @@ const storage = multer.diskStorage({
         cb(null, uploadPath);
     },
     filename: (req, file, cb) => {
-        cb(null, file.originalname);
+        cb(null, `${Date.now()}-${file.originalname}`);
     },
 });
 const upload = multer({ storage });
@@ -33,6 +33,70 @@ router.get("/", async (req, res) => {
     catch (error) {
         console.error("Error al consultar la base de datos:", error);
         res.status(500).json({ status: "error", message: "No se pudieron obtener los servicios." });
+    }
+});
+// Ruta para subir la imagen principal de un servicio
+router.put("/:id/imagen-principal", upload.single("imagen"), async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!req.file) {
+            res.status(400).json({ status: "error", message: "Debe subir una imagen." });
+            return;
+        }
+        // Construir la ruta donde se guardó la imagen
+        const imagenPath = `/assets/images/servicios/${req.file.filename}`;
+        // Verificar si el servicio existe
+        const result = await pool.query("SELECT * FROM servicios WHERE id = $1", [id]);
+        if (result.rows.length === 0) {
+            res.status(404).json({ status: "error", message: "Servicio no encontrado." });
+            return;
+        }
+        // Eliminar la imagen anterior si existe
+        if (result.rows[0].imagen) {
+            const oldImagePath = path.join(uploadPath, path.basename(result.rows[0].imagen));
+            if (fs.existsSync(oldImagePath)) {
+                fs.unlinkSync(oldImagePath);
+            }
+        }
+        // Actualizar la imagen principal en la base de datos
+        await pool.query("UPDATE servicios SET imagen = $1, updated_at = NOW() WHERE id = $2", [
+            imagenPath,
+            id,
+        ]);
+        res.json({ status: "success", message: "Imagen principal actualizada correctamente.", image: imagenPath });
+    }
+    catch (error) {
+        console.error("Error al actualizar la imagen principal:", error);
+        res.status(500).json({ status: "error", message: "No se pudo actualizar la imagen principal." });
+    }
+});
+// Ruta para eliminar la imagen principal
+router.delete("/:id/imagen-principal", async (req, res) => {
+    try {
+        const { id } = req.params;
+        // Verificar si el servicio existe y tiene imagen principal
+        const result = await pool.query("SELECT imagen FROM servicios WHERE id = $1", [id]);
+        if (result.rows.length === 0) {
+            res.status(404).json({ status: "error", message: "Servicio no encontrado." });
+            return;
+        }
+        const imagePath = result.rows[0].imagen;
+        if (!imagePath) {
+            res.status(400).json({ status: "error", message: "El servicio no tiene imagen principal." });
+            return;
+        }
+        // Eliminar el archivo de la imagen principal si existe
+        const filePath = path.join(uploadPath, path.basename(imagePath));
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+        // Actualizar la base de datos y eliminar la referencia de la imagen principal
+        await pool.query("UPDATE servicios SET imagen = NULL, updated_at = NOW() WHERE id = $1", [id]);
+        res.json({ status: "success", message: "Imagen principal eliminada correctamente." });
+    }
+    catch (error) {
+        console.error("Error al eliminar la imagen principal:", error);
+        res.status(500).json({ status: "error", message: "No se pudo eliminar la imagen principal." });
     }
 });
 // Ruta para subir imágenes a un servicio
@@ -87,10 +151,15 @@ router.delete("/:id/imagenes", async (req, res) => {
         await pool.query("UPDATE servicios SET imagenes_adicionales = $1, updated_at = NOW() WHERE id = $2", [nuevasImagenes, id]);
         // Eliminar el archivo físico de la imagen del sistema de archivos
         const imagenPath = path.join(uploadPath, path.basename(imagen));
-        fs.unlink(imagenPath, (err) => {
-            if (err)
-                console.error("Error al eliminar el archivo:", err);
-        });
+        if (fs.existsSync(imagenPath)) {
+            fs.unlink(imagenPath, (err) => {
+                if (err)
+                    console.error("Error al eliminar el archivo:", err);
+            });
+        }
+        else {
+            console.warn("Archivo no encontrado:", imagenPath);
+        }
         res.json({ status: "success", message: "Imagen eliminada correctamente.", imagenes_adicionales: nuevasImagenes });
     }
     catch (error) {

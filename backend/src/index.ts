@@ -1,123 +1,72 @@
-import express, { Express, Request, Response, NextFunction } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
-import nodemailer from 'nodemailer';
-import { pool } from './db.js';
-import { ContactoBody } from './types.js';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import serviciosRoutes from './routes/servicios.js';
 import authRoutes from "./routes/auth.js";
-import { verifyToken } from './middlewares/authMiddleware.js';
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Validar variables de entorno
-const validateEnv = () => {
-    if (!process.env.ETHEREAL_USER || !process.env.ETHEREAL_PASS) {
-        console.error('ERROR: Las variables ETHEREAL_USER y ETHEREAL_PASS no están definidas en el archivo .env');
-        process.exit(1);
-    }
-};
-validateEnv();
+// 📌 Definir __dirname en ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// Middlewares
-app.use(cors({ origin: 'http://localhost:5173' }));
+// ✅ Middleware para procesar JSON y datos de formularios
 app.use(express.json());
-app.use('/assets', express.static(path.resolve('..', 'frontend', 'public', 'assets')));
+app.use(express.urlencoded({ extended: true }));
 
-// **Rutas protegidas**
+// ✅ Configurar CORS para permitir solicitudes del frontend
+app.use(cors({
+    origin: 'http://localhost:5173',
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// ✅ Servir archivos estáticos desde `public/assets`
+const staticPath = path.join(__dirname, '../public/assets');
+console.log(`📂 Sirviendo archivos estáticos desde: ${staticPath}`);
+
+app.use('/assets', express.static(staticPath, {
+    setHeaders: (res, filePath) => {
+        const extension = path.extname(filePath).toLowerCase();
+        const mimeTypes: { [key: string]: string } = {
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.webp': 'image/webp',
+            '.gif': 'image/gif'
+        };
+        if (mimeTypes[extension]) {
+            res.setHeader('Content-Type', mimeTypes[extension]);
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        }
+    }
+}));
+
+// ✅ Rutas protegidas
 app.use('/servicios', serviciosRoutes);
 
-// **Rutas públicas**
+// ✅ Rutas públicas
 app.use("/admin", authRoutes);
 
-// Ruta raíz
+// ✅ Ruta raíz
 app.get('/', (req: Request, res: Response) => {
     res.send('Bienvenido al backend de ACA-Logos');
 });
 
-// Ruta para enviar correos
-app.post('/contacto', async (req: Request<{}, {}, ContactoBody>, res: Response): Promise<void> => {
-    const { nombre, email, mensaje } = req.body;
-
-    if (!nombre || !email || !mensaje) {
-        res.status(400).json({ status: 'error', message: 'Por favor, completa todos los campos.' });
-        return;
-    }
-
-    try {
-        // Configuración de transporte de Modemailer con Ethereal
-        const transporter = nodemailer.createTransport({
-            host: 'smtp.ethereal.email',
-            port: 587,
-            auth: {
-                user: process.env.ETHEREAL_USER,
-                pass: process.env.ETHEREAL_PASS,
-            },
-        });
-
-        // Opciones del correo
-        const mailOptions = {
-            from: email,
-            to: 'regdis@gmail.com', // Cambiar este correo en producción
-            subject: `Nuevo mensaje de contacto de ${nombre}`,
-            text: mensaje,
-            html: `<p><strong>Nombre:</strong> ${nombre}</p>
-                   <p><strong>Email:</strong> ${email}</p>
-                   <p><strong>Mensaje:</strong> ${mensaje}</p>`
-        };
-
-        // Enviar correo
-        const info = await transporter.sendMail(mailOptions);
-        console.log('Correo enviado con éxito:', info.messageId);
-
-        res.status(200).json({
-            status: 'success',
-            message: 'Correo enviado con éxito.',
-            info: info.messageId
-        });
-    } catch (error) {
-        console.error('Error al enviar el correo:', error);
-        res.status(500).json({ status: 'error', message: 'No se pudo enviar el correo, intenta nuevamente.' });
-    }
-});
-
-// Ruta para consultar sobre proyectos personalizados
-app.get('/proyectos', (req: Request, res: Response) => {
-    const proyectos = [
-        { id: 1, nombre: 'Decoración de oficinas', descripción: 'Decoración de oficinas corporativas con impresiones personalizadas.' },
-        { id: 2, nombre: 'Publicidad en eventos', descripción: 'Impresiones personalizadas para publicidad en eventos y ferias.' },
-    ];
-    res.json({ status: 'success', data: proyectos });
-});
-
-// Ruta para obtener información de contacto
-app.get('/contacto-info', (req: Request, res: Response) => {
-    const contacto = {
-        telefono: '123-456-7890',
-        email: 'contacto@empresa.com',
-        direccion: 'Calle Ejemplo, Ciudad, País'
-    };
-    res.json({ status: 'success', data: contacto });
-});
-
-// Ruta para crear un nuevo proyecto
-app.post('/proyectos', (req: Request<{}, {}, Record<string, any>>, res: Response) => {
-    const nuevoProyecto = req.body; // Aquí recibiríamos la data enviada por el cliente
-    console.log('Nuevo proyecto recibido:', nuevoProyecto);
-    res.status(201).json({ status: 'success', message: 'Proyecto creado con éxito', data: nuevoProyecto });
-});
-
-// Middleware para manejo de errores
+// ✅ Middleware para manejo de errores
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
     console.error(err.stack);
     res.status(500).json({ status: 'error', message: 'Algo salió mal, por favor intenta nuevamente.' });
-})
+});
 
-// Iniciar servidor
+// ✅ Iniciar servidor
 app.listen(port, () => {
-    console.log(`Servidor corriendo en http://localhost:${port}`);
+    console.log(`🚀 Servidor corriendo en http://localhost:${port}`);
 });
