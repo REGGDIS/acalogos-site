@@ -1,0 +1,11 @@
+# Fuerza Git a normalizar los finales de línea a LF en todos los sistema
+* text=auto
+
+# Asegura que los archivos JavaScript y TypeScript usen LF
+*.js text eol=lf
+*.ts text eol=lf
+
+# Evita que Git modifique los archivos binarios
+*.jpg binary
+*.png binary
+*.webp binary
