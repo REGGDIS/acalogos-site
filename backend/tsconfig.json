@@ -11,6 +11,6 @@
     "skipLibCheck": true, // Evita errores con tipos de dependencias
     "resolveJsonModule": true // Soporte para importar archivos JSON
   },
-  "include": ["src"], // Compila solo la carpeta src
+  "include": ["src", "src/public"],
   "exclude": ["node_modules", "dist", "src/types.ts"] // Excluye estas carpetas
 }
