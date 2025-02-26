@@ -35,13 +35,13 @@ const Footer: React.FC = () => {
                         </ul>
                     </div>
                     {/* Mapa interactivo */}
-                    <div>
+                    <div className="flex flex-col items-center">
                         <h3 className="text-lg font-bold mb-4">Nuestra ubicación</h3>
-                        <div className="relative h-40 md:h-56">
+                        <div className="relative w-full max-w-md h-48 md:h-64 flex justify-center mt-[-10px] md:mt-[-15px] top-[-5px] md:top-[-15px]">
                             <iframe
                                 src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3167.1484623281362!2d-72.35132879022821!3d-37.45721646455567!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x966bdd69e6d4dbcd%3A0x7c9fb9db650f6c98!2sChorrillos%20280%2C%20Los%20Angeles%2C%20Los%20%C3%81ngeles%2C%20B%C3%ADo%20B%C3%ADo!5e0!3m2!1ses-419!2scl!4v1737638649857!5m2!1ses-419!2scl"
                                 title="Mapa de ubicación"
-                                className="absolute inset-0 w-full h-full border-none"
+                                className="w-full h-full border-none rounded-lg"
                                 allowFullScreen
                                 loading="lazy"
                             ></iframe>
