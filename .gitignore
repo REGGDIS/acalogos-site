@@ -1,1 +1,5 @@
+# Ignorar la carpeta dist de la compilación de TypeScript
+dist/
+
+# Ignorar dependencias de Node.js
 node_modules/
