@@ -27,7 +27,7 @@ app.use(cors({
 }));
 
 // ✅ Servir archivos estáticos desde `public/assets`
-const staticPath = path.join(__dirname, '../src/public/assets');
+const staticPath = path.resolve(__dirname, './public/assets');
 console.log(`📂 Sirviendo archivos estáticos desde: ${staticPath}`);
 
 app.use('/assets', express.static(staticPath, {

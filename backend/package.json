@@ -4,7 +4,7 @@
   "description": "Backend con TypeScript y ES Modules",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node copy-public.js",
     "dev": "nodemon --watch src --exec \"ts-node src/index.ts\"",
     "start": "node dist/index.js",
     "test": "echo \"No tests yet\" && exit 0"
@@ -27,6 +27,7 @@
     "@types/node": "^22.12.0",
     "@types/nodemailer": "^6.4.17",
     "@types/pg": "^8.11.11",
+    "fs-extra": "^11.3.0",
     "nodemon": "^3.1.9",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.3"
