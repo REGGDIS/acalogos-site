@@ -26,8 +26,8 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// ✅ Servir archivos estáticos desde `public/assets`
-const staticPath = path.resolve(__dirname, './public/assets');
+// ✅ Servir archivos estáticos desde `dist/public/assets`
+const staticPath = path.resolve(__dirname, 'public/assets');
 console.log(`📂 Sirviendo archivos estáticos desde: ${staticPath}`);
 
 app.use('/assets', express.static(staticPath, {

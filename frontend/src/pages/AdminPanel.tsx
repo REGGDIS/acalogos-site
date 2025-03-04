@@ -49,6 +49,8 @@ const AdminPanel = () => {
                 .then((response) => {
                     if (response.data.status === "success") {
                         setSelectedServiceDetails(response.data.data);
+
+                        console.log("Imágenes adicionales:", response.data.data.imagenes_adicionales);
                     }
                 })
                 .catch((error) => {
