@@ -31,9 +31,9 @@ const HeroSection: React.FC = () => {
             }}
         >
             <div className="h-full flex flex-col justify-center items-center bg-white bg-opacity-10 text-center text-white px-6">
-                <h2 className="text-4xl md:text-6xl font-bold mb-4">Diseñamos tus ideas</h2>
+                <h2 className="text-4xl md:text-6xl font-bold mb-4">Imprimimos tus ideas</h2>
                 <p className="text-lg md:text-2xl mb-6">
-                    Creamos diseños únicos y personalizados para destacar tu marca.
+                    Preparamos diseños únicos y personalizados para destacar tu marca.
                 </p>
                 <a
                     href="#contact"
