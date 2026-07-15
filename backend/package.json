@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc && node copy-public.js",
-    "dev": "nodemon --watch src --exec \"ts-node src/index.ts\"",
+    "dev": "nodemon --watch src --ext ts,json --exec \"node --loader ts-node/esm src/index.ts\"",
     "start": "node dist/index.js",
     "test": "echo \"No tests yet\" && exit 0"
   },

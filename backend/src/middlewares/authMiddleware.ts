@@ -1,6 +1,6 @@
-import { Response, NextFunction } from "express";
+import type { Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import { AuthRequest } from "../types.js";
+import type { AuthRequest } from "../types.js";
 
 export const verifyToken = (req: AuthRequest, res: Response, next: NextFunction): void => {
     const token = req.headers.authorization?.split(" ")[1];
