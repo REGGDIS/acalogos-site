@@ -2,6 +2,38 @@ import { pool } from "../db.js";
 import path from "path";
 import fs from "fs-extra";
 
+const dataFilePath = path.resolve("src/data/services.json");
+
+type ServicioFallback = {
+    id: number;
+    nombre: string;
+    descripcion: string;
+    precio: string;
+    categoria: string[];
+    imagen: string;
+    imagenes_adicionales?: string[];
+    imagenesAdicionales?: string[];
+};
+
+const normalizeServicio = (servicio: ServicioFallback) => {
+    const { imagenesAdicionales, ...normalizedServicio } = servicio;
+
+    return {
+        ...normalizedServicio,
+        imagenes_adicionales: servicio.imagenes_adicionales ?? imagenesAdicionales ?? [],
+    };
+};
+
+const readFallbackData = async (): Promise<ReturnType<typeof normalizeServicio>[]> => {
+    try {
+        const raw = await fs.readFile(dataFilePath, "utf-8");
+        const servicios = JSON.parse(raw) as ServicioFallback[];
+        return servicios.map(normalizeServicio);
+    } catch (err) {
+        throw new Error(`No se pudo leer el fallback de datos: ${err}`);
+    }
+};
+
 const uploadPath = path.resolve("dist/public/assets/images/servicios");
 
 if (!fs.existsSync(uploadPath)) {
@@ -13,7 +45,16 @@ export const obtenerTodosLosServicios = async () => {
         const result = await pool.query("SELECT * FROM servicios ORDER BY id");
         return result.rows;
     } catch (error) {
-        throw new Error(`Error al obtener los servicios: ${error}`);
+        // Si falla la BD, devolver datos de ejemplo desde JSON
+        console.warn("DB error al obtener todos los servicios:", error);
+        try {
+            const fallback = await readFallbackData();
+            console.info("Usando datos de fallback desde:", dataFilePath);
+            return fallback;
+        } catch (err) {
+            console.error("No se pudo leer el fallback, devolviendo array vacío:", err);
+            return [];
+        }
     }
 };
 
@@ -22,7 +63,14 @@ export const obtenerServicioPorId = async (id: string) => {
         const result = await pool.query("SELECT * FROM servicios WHERE id = $1", [id]);
         return result.rows[0] || null;
     } catch (error) {
-        throw new Error(`Error al obtener el servicio con ID ${id}: ${error}`);
+        // Fallback a JSON
+        try {
+            const fallback = await readFallbackData();
+            const found = fallback.find((servicio) => String(servicio.id) === String(id));
+            return found || null;
+        } catch (err) {
+            throw new Error(`Error al obtener el servicio con ID ${id}: ${error}`);
+        }
     }
 };
 
