@@ -1,13 +1,11 @@
 import pkg from 'pg';
 const { Pool } = pkg;
-import dotenv from 'dotenv';
-
-dotenv.config();
+import { config } from './config.js';
 
 export const pool = new Pool({
-    host: process.env.DB_HOST || 'localhost',
-    port: Number(process.env.DB_PORT) || 5432,
-    user: process.env.DB_USER || 'Roberto',
-    password: process.env.DB_PASSWORD || '123456',
-    database: process.env.DB_NAME || 'bd_acalogos',
+    host: config.db.host,
+    port: config.db.port,
+    user: config.db.user,
+    password: config.db.password,
+    database: config.db.database,
 });
