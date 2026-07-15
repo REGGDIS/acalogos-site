@@ -1,16 +1,14 @@
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
-import dotenv from 'dotenv';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import serviciosRoutes from './routes/servicios.js';
 import authRoutes from "./routes/auth.js";
-
-dotenv.config();
+import { config } from './config.js';
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = config.port;
 
 // 📌 Definir __dirname en ES Modules
 const __filename = fileURLToPath(import.meta.url);
