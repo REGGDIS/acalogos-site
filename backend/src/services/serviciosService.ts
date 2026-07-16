@@ -1,7 +1,9 @@
 import { pool } from "../db.js";
 import path from "path";
 import fs from "fs-extra";
-import { uploadPath } from "../uploadConfig.js";
+import type { PoolClient } from "pg";
+import { ImagenReferenciaNoEncontradaError, ServicioNoEncontradoError } from "../errors/serviciosErrors.js";
+import { deleteImage, uploadImage, type StoredImage } from "./imageStorageService.js";
 
 const dataFilePath = path.resolve("src/data/services.json");
 
@@ -35,9 +37,118 @@ const readFallbackData = async (): Promise<ReturnType<typeof normalizeServicio>[
     }
 };
 
-if (!fs.existsSync(uploadPath)) {
-    fs.mkdirSync(uploadPath, { recursive: true });
-}
+type ImagenesAdicionalesPublicIds = Record<string, string>;
+
+const warnRemoteCleanupFailed = (): void => {
+    console.warn("No se pudo completar el cleanup remoto de imagen.");
+};
+
+const warnCommitVerificationFailed = (): void => {
+    console.warn("No se pudo verificar el resultado del commit de imagen; se conserva el recurso remoto.");
+};
+
+const normalizeImagenesAdicionalesPublicIds = (value: unknown): ImagenesAdicionalesPublicIds => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return {};
+    }
+
+    return Object.fromEntries(
+        Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    );
+};
+
+const cleanupNewImage = async (): Promise<void> => {
+    warnRemoteCleanupFailed();
+};
+
+const deleteNewImage = async (publicId: string): Promise<void> => {
+    try {
+        await deleteImage(publicId);
+    } catch {
+        await cleanupNewImage();
+    }
+};
+
+const isPublicIdReferenced = async (publicId: string): Promise<boolean> => {
+    const result = await pool.query<{ referenced: boolean }>(
+        `SELECT EXISTS (
+            SELECT 1
+            FROM servicios
+            WHERE imagen_public_id = $1
+                OR EXISTS (
+                    SELECT 1
+                    FROM jsonb_each_text(imagenes_adicionales_public_ids) AS refs(key, value)
+                    WHERE refs.value = $1
+                )
+        ) AS referenced`,
+        [publicId],
+    );
+
+    return result.rows[0]?.referenced ?? true;
+};
+
+const deleteImageIfUnreferenced = async (publicId: string | null | undefined): Promise<void> => {
+    if (!publicId) return;
+
+    try {
+        const referenced = await isPublicIdReferenced(publicId);
+        if (!referenced) {
+            await deleteImage(publicId);
+        }
+    } catch {
+        warnRemoteCleanupFailed();
+    }
+};
+
+const isPrimaryImagePersisted = async (id: string, image: StoredImage): Promise<boolean | null> => {
+    try {
+        const result = await pool.query<{ exists: boolean }>(
+            "SELECT EXISTS (SELECT 1 FROM servicios WHERE id = $1 AND imagen = $2 AND imagen_public_id = $3) AS exists",
+            [id, image.secureUrl, image.publicId],
+        );
+
+        return result.rows[0]?.exists ?? false;
+    } catch {
+        warnCommitVerificationFailed();
+        return null;
+    }
+};
+
+const isAdditionalImagePersisted = async (id: string, image: StoredImage): Promise<boolean | null> => {
+    try {
+        const result = await pool.query<{ exists: boolean }>(
+            `SELECT EXISTS (
+                SELECT 1
+                FROM servicios
+                WHERE id = $1
+                    AND $2 = ANY(imagenes_adicionales)
+                    AND imagenes_adicionales_public_ids ->> $2 = $3
+            ) AS exists`,
+            [id, image.secureUrl, image.publicId],
+        );
+
+        return result.rows[0]?.exists ?? false;
+    } catch {
+        warnCommitVerificationFailed();
+        return null;
+    }
+};
+
+const rollbackIfNeeded = async (client: PoolClient | null, transactionStarted: boolean): Promise<boolean> => {
+    if (!client || !transactionStarted) return true;
+
+    try {
+        await client.query("ROLLBACK");
+        return true;
+    } catch {
+        console.warn("No se pudo revertir la transaccion de imagen.");
+        return false;
+    }
+};
+
+const discardClient = (client: PoolClient, reason: string): void => {
+    client.release(new Error(reason));
+};
 
 export const obtenerTodosLosServicios = async () => {
     try {
@@ -73,88 +184,251 @@ export const obtenerServicioPorId = async (id: string) => {
     }
 };
 
-export const actualizarImagenPrincipal = async (id: string, filename: string) => {
+export const actualizarImagenPrincipal = async (id: string, buffer: Buffer): Promise<string> => {
+    const nuevaImagen = await uploadImage(buffer);
+    let client: PoolClient | null = null;
+    let transactionStarted = false;
+    let commitAttempted = false;
+    let commitConfirmed = false;
+    let previousPublicId: string | null = null;
+
     try {
-        const imagenPath = `/assets/images/servicios/${filename}`;
-        const result = await pool.query("SELECT imagen FROM servicios WHERE id = $1", [id]);
+        client = await pool.connect();
+        await client.query("BEGIN");
+        transactionStarted = true;
+
+        const result = await client.query<{ imagen: string | null; imagen_public_id: string | null }>(
+            "SELECT imagen, imagen_public_id FROM servicios WHERE id = $1 FOR UPDATE",
+            [id],
+        );
 
         if (result.rows.length === 0) {
-            throw new Error(`El servicio con ID ${id} no existe`);
+            throw new ServicioNoEncontradoError();
         }
 
-        await pool.query("UPDATE servicios SET imagen = $1, updated_at = NOW() WHERE id = $2", [imagenPath, id]);
+        previousPublicId = result.rows[0].imagen_public_id;
 
-        if (result.rows[0].imagen) {
-            const oldImagePath = path.join(uploadPath, path.basename(result.rows[0].imagen));
-            try {
-                if (fs.existsSync(oldImagePath)) {
-                    fs.unlinkSync(oldImagePath);
-                }
-            } catch {
-                console.warn("No se pudo eliminar la imagen principal anterior tras actualizar la referencia.");
+        await client.query(
+            "UPDATE servicios SET imagen = $1, imagen_public_id = $2, updated_at = NOW() WHERE id = $3",
+            [nuevaImagen.secureUrl, nuevaImagen.publicId, id],
+        );
+
+        commitAttempted = true;
+        await client.query("COMMIT");
+        commitConfirmed = true;
+    } catch (error) {
+        if (!commitAttempted) {
+            const rollbackSucceeded = await rollbackIfNeeded(client, transactionStarted);
+            if (!rollbackSucceeded && client) {
+                discardClient(client, "Rollback de imagen fallido.");
+                client = null;
+            }
+            await deleteNewImage(nuevaImagen.publicId);
+        } else if (!commitConfirmed) {
+            client?.release(error instanceof Error ? error : new Error("Commit de imagen incierto."));
+            client = null;
+
+            const persisted = await isPrimaryImagePersisted(id, nuevaImagen);
+            if (persisted === false) {
+                await deleteNewImage(nuevaImagen.publicId);
             }
         }
 
-        return imagenPath;
-    } catch (error) {
-        throw new Error(`Error al actualizar la imagen principal: ${error}`);
+        throw error;
+    } finally {
+        client?.release();
     }
+
+    await deleteImageIfUnreferenced(previousPublicId);
+    return nuevaImagen.secureUrl;
 };
 
-export const eliminarImagenPrincipal = async (id: string) => {
+export const eliminarImagenPrincipal = async (id: string): Promise<void> => {
+    let client: PoolClient | null = null;
+    let oldPublicId: string | null = null;
+    let commitAttempted = false;
+    let commitConfirmed = false;
+
     try {
-        const result = await pool.query("SELECT imagen FROM servicios WHERE id = $1", [id]);
-        if (result.rows.length === 0 || !result.rows[0].imagen) return;
+        client = await pool.connect();
+        await client.query("BEGIN");
 
-        const imagePath = path.join(uploadPath, path.basename(result.rows[0].imagen));
-        if (fs.existsSync(imagePath)) {
-            fs.unlinkSync(imagePath);
-        }
-
-        await pool.query("UPDATE servicios SET imagen = NULL, updated_at = NOW() WHERE id = $1", [id]);
-    } catch (error) {
-        throw new Error(`Error al eliminar la imagen principal: ${error}`);
-    }
-};
-
-export const agregarImagenAdicional = async (id: string, filename: string) => {
-    try {
-        const imagenPath = `/assets/images/servicios/${filename}`;
-        const result = await pool.query("SELECT imagenes_adicionales FROM servicios WHERE id = $1", [id]);
+        const result = await client.query<{ imagen: string | null; imagen_public_id: string | null }>(
+            "SELECT imagen, imagen_public_id FROM servicios WHERE id = $1 FOR UPDATE",
+            [id],
+        );
 
         if (result.rows.length === 0) {
-            throw new Error(`El servicio con ID ${id} no existe`);
+            throw new ServicioNoEncontradoError();
         }
 
-        const imagenesActuales: string[] = result.rows[0]?.imagenes_adicionales || [];
-        const nuevasImagenes = [...imagenesActuales, imagenPath];
+        oldPublicId = result.rows[0].imagen_public_id;
 
-        await pool.query("UPDATE servicios SET imagenes_adicionales = $1, updated_at = NOW() WHERE id = $2", [
-            nuevasImagenes,
-            id,
-        ]);
+        await client.query(
+            "UPDATE servicios SET imagen = NULL, imagen_public_id = NULL, updated_at = NOW() WHERE id = $1",
+            [id],
+        );
 
-        return nuevasImagenes;
+        commitAttempted = true;
+        await client.query("COMMIT");
+        commitConfirmed = true;
     } catch (error) {
-        throw new Error(`Error al agregar imagen adicional: ${error}`);
+        if (!commitAttempted) {
+            const rollbackSucceeded = await rollbackIfNeeded(client, true);
+            if (!rollbackSucceeded && client) {
+                discardClient(client, "Rollback de imagen fallido.");
+                client = null;
+            }
+        } else if (!commitConfirmed) {
+            client?.release(error instanceof Error ? error : new Error("Commit de imagen incierto."));
+            client = null;
+        }
+
+        throw error;
+    } finally {
+        client?.release();
     }
+
+    await deleteImageIfUnreferenced(oldPublicId);
 };
 
-export const eliminarImagenAdicional = async (id: string, imagen: string) => {
+export const agregarImagenAdicional = async (id: string, buffer: Buffer): Promise<string[]> => {
+    const nuevaImagen = await uploadImage(buffer);
+    let client: PoolClient | null = null;
+    let transactionStarted = false;
+    let commitAttempted = false;
+    let commitConfirmed = false;
+    let nuevasImagenes: string[] = [];
+
     try {
-        const result = await pool.query("SELECT imagenes_adicionales FROM servicios WHERE id = $1", [id]);
+        client = await pool.connect();
+        await client.query("BEGIN");
+        transactionStarted = true;
+
+        const result = await client.query<{
+            imagenes_adicionales: string[] | null;
+            imagenes_adicionales_public_ids: unknown;
+        }>(
+            "SELECT imagenes_adicionales, imagenes_adicionales_public_ids FROM servicios WHERE id = $1 FOR UPDATE",
+            [id],
+        );
+
         if (result.rows.length === 0) {
-            throw new Error(`El servicio con ID ${id} no existe`);
+            throw new ServicioNoEncontradoError();
         }
 
-        const nuevasImagenes = result.rows[0].imagenes_adicionales.filter((img: string) => img !== imagen);
-        await pool.query("UPDATE servicios SET imagenes_adicionales = $1, updated_at = NOW() WHERE id = $2", [
-            nuevasImagenes,
-            id,
-        ]);
+        const imagenesActuales = result.rows[0].imagenes_adicionales ?? [];
+        nuevasImagenes = Array.from(new Set([...imagenesActuales, nuevaImagen.secureUrl]));
+        const nuevosPublicIds = {
+            ...normalizeImagenesAdicionalesPublicIds(result.rows[0].imagenes_adicionales_public_ids),
+            [nuevaImagen.secureUrl]: nuevaImagen.publicId,
+        };
 
-        return nuevasImagenes;
+        await client.query(
+            `UPDATE servicios
+            SET imagenes_adicionales = $1,
+                imagenes_adicionales_public_ids = $2::jsonb,
+                updated_at = NOW()
+            WHERE id = $3`,
+            [nuevasImagenes, JSON.stringify(nuevosPublicIds), id],
+        );
+
+        commitAttempted = true;
+        await client.query("COMMIT");
+        commitConfirmed = true;
     } catch (error) {
-        throw new Error(`Error al eliminar imagen adicional: ${error}`);
+        if (!commitAttempted) {
+            const rollbackSucceeded = await rollbackIfNeeded(client, transactionStarted);
+            if (!rollbackSucceeded && client) {
+                discardClient(client, "Rollback de imagen fallido.");
+                client = null;
+            }
+            await deleteNewImage(nuevaImagen.publicId);
+        } else if (!commitConfirmed) {
+            client?.release(error instanceof Error ? error : new Error("Commit de imagen incierto."));
+            client = null;
+
+            const persisted = await isAdditionalImagePersisted(id, nuevaImagen);
+            if (persisted === false) {
+                await deleteNewImage(nuevaImagen.publicId);
+            }
+        }
+
+        throw error;
+    } finally {
+        client?.release();
     }
+
+    return nuevasImagenes;
+};
+
+export const eliminarImagenAdicional = async (id: string, imagen: string): Promise<string[]> => {
+    const imagenNormalizada = typeof imagen === "string" ? imagen.trim() : "";
+    if (!imagenNormalizada) {
+        throw new ImagenReferenciaNoEncontradaError();
+    }
+
+    let client: PoolClient | null = null;
+    let oldPublicId: string | null = null;
+    let nuevasImagenes: string[] = [];
+    let commitAttempted = false;
+    let commitConfirmed = false;
+
+    try {
+        client = await pool.connect();
+        await client.query("BEGIN");
+
+        const result = await client.query<{
+            imagenes_adicionales: string[] | null;
+            imagenes_adicionales_public_ids: unknown;
+        }>(
+            "SELECT imagenes_adicionales, imagenes_adicionales_public_ids FROM servicios WHERE id = $1 FOR UPDATE",
+            [id],
+        );
+
+        if (result.rows.length === 0) {
+            throw new ServicioNoEncontradoError();
+        }
+
+        const imagenesActuales = result.rows[0].imagenes_adicionales ?? [];
+        if (!imagenesActuales.includes(imagenNormalizada)) {
+            throw new ImagenReferenciaNoEncontradaError();
+        }
+
+        const publicIdsActuales = normalizeImagenesAdicionalesPublicIds(result.rows[0].imagenes_adicionales_public_ids);
+        oldPublicId = publicIdsActuales[imagenNormalizada] ?? null;
+        delete publicIdsActuales[imagenNormalizada];
+        nuevasImagenes = imagenesActuales.filter((img) => img !== imagenNormalizada);
+
+        await client.query(
+            `UPDATE servicios
+            SET imagenes_adicionales = $1,
+                imagenes_adicionales_public_ids = $2::jsonb,
+                updated_at = NOW()
+            WHERE id = $3`,
+            [nuevasImagenes, JSON.stringify(publicIdsActuales), id],
+        );
+
+        commitAttempted = true;
+        await client.query("COMMIT");
+        commitConfirmed = true;
+    } catch (error) {
+        if (!commitAttempted) {
+            const rollbackSucceeded = await rollbackIfNeeded(client, true);
+            if (!rollbackSucceeded && client) {
+                discardClient(client, "Rollback de imagen fallido.");
+                client = null;
+            }
+        } else if (!commitConfirmed) {
+            client?.release(error instanceof Error ? error : new Error("Commit de imagen incierto."));
+            client = null;
+        }
+
+        throw error;
+    } finally {
+        client?.release();
+    }
+
+    await deleteImageIfUnreferenced(oldPublicId);
+    return nuevasImagenes;
 };

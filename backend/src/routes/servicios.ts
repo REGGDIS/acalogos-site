@@ -1,6 +1,6 @@
 import { Router } from "express";
 import * as serviciosController from "../controllers/serviciosController.js";
-import upload, { validateUploadedImage } from "../middlewares/uploadMiddleware.js";
+import upload, { handleUploadError, validateUploadedImage } from "../middlewares/uploadMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 
 const router = Router();
@@ -24,5 +24,7 @@ router.put("/:id/imagenes", verifyToken, upload.single("imagen"), validateUpload
 
 // ✅ Eliminar imagen adicional de un servicio
 router.delete("/:id/imagenes", verifyToken, serviciosController.borrarImagenAdicional);
+
+router.use(handleUploadError);
 
 export default router;

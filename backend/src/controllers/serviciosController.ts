@@ -7,7 +7,21 @@ import {
     agregarImagenAdicional,
     eliminarImagenAdicional
 } from "../services/serviciosService.js";
-import { deleteUploadedFile } from "../middlewares/uploadMiddleware.js";
+import { ImagenReferenciaNoEncontradaError, ServicioNoEncontradoError } from "../errors/serviciosErrors.js";
+
+const sendKnownServiceError = (res: Response, error: unknown, fallbackMessage: string): void => {
+    if (error instanceof ServicioNoEncontradoError) {
+        res.status(404).json({ status: "error", message: "Servicio no encontrado." });
+        return;
+    }
+
+    if (error instanceof ImagenReferenciaNoEncontradaError) {
+        res.status(404).json({ status: "error", message: "Referencia de imagen no encontrada." });
+        return;
+    }
+
+    res.status(500).json({ status: "error", message: fallbackMessage });
+};
 
 /**
  * Controlador para obtener todos los servicios
@@ -56,12 +70,10 @@ export const subirImagenPrincipal = async (req: Request, res: Response): Promise
             return;
         }
 
-        const imagenPath = await actualizarImagenPrincipal(id, req.file.filename);
+        const imagenPath = await actualizarImagenPrincipal(id, req.file.buffer);
         res.json({ status: "success", message: "Imagen principal actualizada correctamente.", image: imagenPath });
     } catch (error) {
-        await deleteUploadedFile(req.file);
-        console.error("Error al actualizar la imagen principal:", error);
-        res.status(500).json({ status: "error", message: "No se pudo actualizar la imagen principal." });
+        sendKnownServiceError(res, error, "No se pudo actualizar la imagen principal.");
     }
 };
 
@@ -74,8 +86,7 @@ export const borrarImagenPrincipal = async (req: Request, res: Response): Promis
         await eliminarImagenPrincipal(id);
         res.json({ status: "success", message: "Imagen principal eliminada correctamente." });
     } catch (error) {
-        console.error("Error al eliminar la imagen principal:", error);
-        res.status(500).json({ status: "error", message: "No se pudo eliminar la imagen principal." });
+        sendKnownServiceError(res, error, "No se pudo eliminar la imagen principal.");
     }
 };
 
@@ -90,12 +101,10 @@ export const subirImagenAdicional = async (req: Request, res: Response): Promise
             return;
         }
 
-        const nuevasImagenes = await agregarImagenAdicional(id, req.file.filename);
+        const nuevasImagenes = await agregarImagenAdicional(id, req.file.buffer);
         res.json({ status: "success", message: "Imagen adicional añadida con éxito.", imagenes_adicionales: nuevasImagenes });
     } catch (error) {
-        await deleteUploadedFile(req.file);
-        console.error("Error al agregar la imagen adicional:", error);
-        res.status(500).json({ status: "error", message: "No se pudo agregar la imagen." });
+        sendKnownServiceError(res, error, "No se pudo agregar la imagen.");
     }
 };
 
@@ -110,7 +119,6 @@ export const borrarImagenAdicional = async (req: Request, res: Response): Promis
         const nuevasImagenes = await eliminarImagenAdicional(id, imagen);
         res.json({ status: "success", message: "Imagen eliminada correctamente.", imagenes_adicionales: nuevasImagenes });
     } catch (error) {
-        console.error("Error al eliminar la imagen adicional:", error);
-        res.status(500).json({ status: "error", message: "No se pudo eliminar la imagen." });
+        sendKnownServiceError(res, error, "No se pudo eliminar la imagen.");
     }
 };
