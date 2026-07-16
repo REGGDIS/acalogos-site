@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { apiUrl } from "../config/api";
 
 const Contacto: React.FC = () => {
     const [formData, setFormData] = useState({
@@ -23,7 +24,7 @@ const Contacto: React.FC = () => {
         setIsSubmitting(true); // Activar el indicador de carga
 
         try {
-            const response = await fetch("http://localhost:3000/contacto", {
+            const response = await fetch(apiUrl("/contacto"), {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

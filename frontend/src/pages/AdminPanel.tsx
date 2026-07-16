@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import { apiUrl } from "../config/api";
 
 // Definir la interfaz para los servicios
 interface Servicio {
@@ -32,7 +33,7 @@ const AdminPanel = () => {
     // Obtener la lista de servicios
     useEffect(() => {
         const fetchServicios = async () => {
-            const response = await fetch("http://localhost:3000/servicios");
+            const response = await fetch(apiUrl("/servicios"));
             const data = await response.json();
             if (data.status === "success") {
                 setServicios(data.data);
@@ -45,7 +46,7 @@ const AdminPanel = () => {
     useEffect(() => {
         if (selectedService) {
             axios
-                .get(`http://localhost:3000/servicios/${selectedService}`)
+                .get(apiUrl(`/servicios/${selectedService}`))
                 .then((response) => {
                     if (response.data.status === "success") {
                         setSelectedServiceDetails(response.data.data);
@@ -85,7 +86,7 @@ const AdminPanel = () => {
 
         try {
             const response = await axios.put(
-                `http://localhost:3000/servicios/${selectedService}/imagenes`,
+                apiUrl(`/servicios/${selectedService}/imagenes`),
                 formData,
                 {
                     headers: {
@@ -123,7 +124,7 @@ const AdminPanel = () => {
 
         try {
             const response = await axios.put(
-                `http://localhost:3000/servicios/${selectedService}/imagen-principal`,
+                apiUrl(`/servicios/${selectedService}/imagen-principal`),
                 formData,
                 {
                     headers: {
@@ -156,7 +157,7 @@ const AdminPanel = () => {
         const token = sessionStorage.getItem("token");
         try {
             const response = await axios.delete(
-                `http://localhost:3000/servicios/${selectedService}/imagenes`,
+                apiUrl(`/servicios/${selectedService}/imagenes`),
                 {
                     data: { imagen: img },
                     headers: {
@@ -204,7 +205,7 @@ const AdminPanel = () => {
                 <div className="mt-4">
                     <h3 className="text-xl font-semibold">Imagen Principal</h3>
                     <img
-                        src={`http://localhost:3000${selectedServiceDetails.imagen}`}
+                        src={apiUrl(selectedServiceDetails.imagen)}
                         alt="Imagen principal"
                         className="w-40 h-auto object-contain rounded-lg mt-2"
                     />
@@ -233,7 +234,7 @@ const AdminPanel = () => {
                         {selectedServiceDetails.imagenes_adicionales.map((img, index) => (
                             <div key={index} className="relative">
                                 <img
-                                    src={`http://localhost:3000${img}?v=${Date.now()}`}
+                                    src={`${apiUrl(img)}?v=${Date.now()}`}
                                     alt="Imagen adicional"
                                     className="w-full h-auto object-contain rounded-lg"
                                 />

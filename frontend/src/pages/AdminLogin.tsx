@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { apiUrl } from "../config/api";
 
 const AdminLogin = () => {
     const [email, setEmail] = useState("");
@@ -12,7 +13,7 @@ const AdminLogin = () => {
         setError(""); // Limpiar errores previos
 
         try {
-            const response = await fetch("http://localhost:3000/admin/login", {
+            const response = await fetch(apiUrl("/admin/login"), {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
