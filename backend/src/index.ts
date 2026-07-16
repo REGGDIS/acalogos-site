@@ -1,37 +1,48 @@
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
+import cors, { type CorsOptions } from 'cors';
 import multer from 'multer';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import serviciosRoutes from './routes/servicios.js';
 import authRoutes from "./routes/auth.js";
 import { config } from './config.js';
 import { UploadHttpError } from './middlewares/uploadMiddleware.js';
+import { publicAssetsPath } from './uploadConfig.js';
 
 const app = express();
 const port = config.port;
-
-// 📌 Definir __dirname en ES Modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // ✅ Middleware para procesar JSON y datos de formularios
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ✅ Configurar CORS para permitir solicitudes del frontend
-app.use(cors({
-    origin: 'http://localhost:5173',
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
+const corsOptions: CorsOptions = {
+    origin: (origin, callback) => {
+        if (!origin) {
+            callback(null, true);
+            return;
+        }
 
-// ✅ Servir archivos estáticos desde `dist/public/assets`
-const staticPath = path.resolve(__dirname, 'public/assets');
-console.log(`📂 Sirviendo archivos estáticos desde: ${staticPath}`);
+        const normalizedOrigin = origin.trim().replace(/\/+$/, '');
+        if (config.corsOrigins.includes(normalizedOrigin)) {
+            callback(null, true);
+            return;
+        }
 
-app.use('/assets', express.static(staticPath, {
+        callback(new Error('Origen CORS no autorizado.'));
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
+// ✅ Servir archivos estáticos desde la carpeta canónica de assets administrados
+console.log(`📂 Sirviendo archivos estáticos desde: ${publicAssetsPath}`);
+
+app.use('/assets', express.static(publicAssetsPath, {
     setHeaders: (res, filePath) => {
         const extension = path.extname(filePath).toLowerCase();
         const mimeTypes: { [key: string]: string } = {
@@ -80,6 +91,11 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
             : 'Solicitud de archivo inválida.';
 
         res.status(statusCode).json({ status: 'error', message });
+        return;
+    }
+
+    if (err.message === 'Origen CORS no autorizado.') {
+        res.status(403).json({ status: 'error', message: 'Origen no autorizado.' });
         return;
     }
 

@@ -6,6 +6,7 @@ const requiredEnvVars = [
     "ADMIN_USER",
     "ADMIN_PASS",
     "JWT_SECRET",
+    "CORS_ORIGIN",
     "DB_HOST",
     "DB_PORT",
     "DB_USER",
@@ -24,10 +25,39 @@ const getRequiredEnv = (name: (typeof requiredEnvVars)[number]): string => {
     return value;
 };
 
+const normalizeOrigin = (origin: string): string => origin.trim().replace(/\/+$/, "");
+
+const parseCorsOrigins = (value: string): string[] => {
+    const origins = value
+        .split(",")
+        .map(normalizeOrigin)
+        .filter((origin) => origin.length > 0);
+
+    if (origins.length === 0) {
+        console.error("Configuración inválida: CORS_ORIGIN debe incluir al menos un origen.");
+        process.exit(1);
+    }
+
+    for (const origin of origins) {
+        try {
+            const url = new URL(origin);
+            if (url.protocol !== "http:" && url.protocol !== "https:") {
+                throw new Error("Protocolo no permitido");
+            }
+        } catch {
+            console.error("Configuración inválida: CORS_ORIGIN contiene un origen no válido.");
+            process.exit(1);
+        }
+    }
+
+    return origins;
+};
+
 export const config = {
     adminUser: getRequiredEnv("ADMIN_USER"),
     adminPass: getRequiredEnv("ADMIN_PASS"),
     jwtSecret: getRequiredEnv("JWT_SECRET"),
+    corsOrigins: parseCorsOrigins(getRequiredEnv("CORS_ORIGIN")),
     db: {
         host: getRequiredEnv("DB_HOST"),
         port: Number(getRequiredEnv("DB_PORT")),

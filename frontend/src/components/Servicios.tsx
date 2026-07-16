@@ -7,6 +7,7 @@ import "swiper/css";
 import "swiper/css/navigation";
 import "swiper/css/pagination";
 import "../styles/modal.css";
+import { apiUrl } from "../config/api";
 
 Modal.setAppElement("#root");
 
@@ -35,7 +36,7 @@ const Servicios: React.FC = () => {
 
   useEffect(() => {
     axios
-      .get("http://localhost:3000/servicios")
+      .get(apiUrl("/servicios"))
       .then((response) => {
         console.log("Servicios recibidos del backend:", response.data);
         setServicios(response.data.data);
@@ -121,7 +122,7 @@ const Servicios: React.FC = () => {
               onClick={() => openModal(servicio)}
             >
               <img
-                src={`http://localhost:3000${servicio.imagen}`}
+                src={apiUrl(servicio.imagen)}
                 alt={servicio.nombre}
                 className="w-full h-48 object-cover"
               />
@@ -163,7 +164,7 @@ const Servicios: React.FC = () => {
               {/* 🔹 Imagen Principal */}
               <SwiperSlide className="flex justify-center items-center">
                 <img
-                  src={`http://localhost:3000${currentServicio.imagen}`}
+                  src={apiUrl(currentServicio.imagen)}
                   alt="Imagen principal"
                   className="w-full h-auto max-h-[70vh] object-contain rounded-lg"
                 />
@@ -173,7 +174,7 @@ const Servicios: React.FC = () => {
               {currentServicio.imagenes_adicionales?.map((img, index) => (
                 <SwiperSlide key={index} className="flex justify-center items-center">
                   <img
-                    src={`http://localhost:3000${img}`}
+                    src={apiUrl(img)}
                     alt={`Imagen adicional ${index + 1}`}
                     className="w-full h-auto max-h-[70vh] object-contain rounded-lg"
                   />
