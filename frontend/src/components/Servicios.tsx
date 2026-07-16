@@ -7,7 +7,7 @@ import "swiper/css";
 import "swiper/css/navigation";
 import "swiper/css/pagination";
 import "../styles/modal.css";
-import { apiUrl } from "../config/api";
+import { apiUrl, assetUrl } from "../config/api";
 
 Modal.setAppElement("#root");
 
@@ -122,7 +122,7 @@ const Servicios: React.FC = () => {
               onClick={() => openModal(servicio)}
             >
               <img
-                src={apiUrl(servicio.imagen)}
+                src={assetUrl(servicio.imagen)}
                 alt={servicio.nombre}
                 className="w-full h-48 object-cover"
               />
@@ -164,7 +164,7 @@ const Servicios: React.FC = () => {
               {/* 🔹 Imagen Principal */}
               <SwiperSlide className="flex justify-center items-center">
                 <img
-                  src={apiUrl(currentServicio.imagen)}
+                  src={assetUrl(currentServicio.imagen)}
                   alt="Imagen principal"
                   className="w-full h-auto max-h-[70vh] object-contain rounded-lg"
                 />
@@ -174,7 +174,7 @@ const Servicios: React.FC = () => {
               {currentServicio.imagenes_adicionales?.map((img, index) => (
                 <SwiperSlide key={index} className="flex justify-center items-center">
                   <img
-                    src={apiUrl(img)}
+                    src={assetUrl(img)}
                     alt={`Imagen adicional ${index + 1}`}
                     className="w-full h-auto max-h-[70vh] object-contain rounded-lg"
                   />

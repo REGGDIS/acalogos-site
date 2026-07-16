@@ -16,3 +16,35 @@ export const apiUrl = (path: string): string => {
     const normalizedPath = path.startsWith("/") ? path : `/${path}`;
     return `${API_BASE_URL}${normalizedPath}`;
 };
+
+export const assetUrl = (value: string): string => {
+    const trimmedValue = value.trim();
+
+    if (!trimmedValue) {
+        throw new Error("Invalid asset URL.");
+    }
+
+    if (trimmedValue.startsWith("/assets/")) {
+        return apiUrl(trimmedValue);
+    }
+
+    let parsedUrl: URL;
+    try {
+        parsedUrl = new URL(trimmedValue);
+    } catch {
+        throw new Error("Invalid asset URL.");
+    }
+
+    if (parsedUrl.protocol === "https:") {
+        return trimmedValue;
+    }
+
+    if (
+        parsedUrl.protocol === "http:"
+        && (parsedUrl.hostname === "localhost" || parsedUrl.hostname === "127.0.0.1")
+    ) {
+        return trimmedValue;
+    }
+
+    throw new Error("Invalid asset URL.");
+};
