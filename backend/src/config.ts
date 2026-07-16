@@ -12,6 +12,9 @@ const requiredEnvVars = [
     "DB_USER",
     "DB_PASSWORD",
     "DB_NAME",
+    "CLOUDINARY_CLOUD_NAME",
+    "CLOUDINARY_API_KEY",
+    "CLOUDINARY_API_SECRET",
 ] as const;
 
 const getRequiredEnv = (name: (typeof requiredEnvVars)[number]): string => {
@@ -64,6 +67,11 @@ export const config = {
         user: getRequiredEnv("DB_USER"),
         password: getRequiredEnv("DB_PASSWORD"),
         database: getRequiredEnv("DB_NAME"),
+    },
+    cloudinary: {
+        cloudName: getRequiredEnv("CLOUDINARY_CLOUD_NAME"),
+        apiKey: getRequiredEnv("CLOUDINARY_API_KEY"),
+        apiSecret: getRequiredEnv("CLOUDINARY_API_SECRET"),
     },
     port: process.env.PORT || 3000,
 };
