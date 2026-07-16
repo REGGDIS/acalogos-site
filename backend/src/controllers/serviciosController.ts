@@ -7,6 +7,7 @@ import {
     agregarImagenAdicional,
     eliminarImagenAdicional
 } from "../services/serviciosService.js";
+import { deleteUploadedFile } from "../middlewares/uploadMiddleware.js";
 
 /**
  * Controlador para obtener todos los servicios
@@ -58,6 +59,7 @@ export const subirImagenPrincipal = async (req: Request, res: Response): Promise
         const imagenPath = await actualizarImagenPrincipal(id, req.file.filename);
         res.json({ status: "success", message: "Imagen principal actualizada correctamente.", image: imagenPath });
     } catch (error) {
+        await deleteUploadedFile(req.file);
         console.error("Error al actualizar la imagen principal:", error);
         res.status(500).json({ status: "error", message: "No se pudo actualizar la imagen principal." });
     }
@@ -91,6 +93,7 @@ export const subirImagenAdicional = async (req: Request, res: Response): Promise
         const nuevasImagenes = await agregarImagenAdicional(id, req.file.filename);
         res.json({ status: "success", message: "Imagen adicional añadida con éxito.", imagenes_adicionales: nuevasImagenes });
     } catch (error) {
+        await deleteUploadedFile(req.file);
         console.error("Error al agregar la imagen adicional:", error);
         res.status(500).json({ status: "error", message: "No se pudo agregar la imagen." });
     }

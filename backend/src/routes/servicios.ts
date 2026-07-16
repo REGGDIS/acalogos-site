@@ -1,6 +1,6 @@
 import { Router } from "express";
 import * as serviciosController from "../controllers/serviciosController.js";
-import upload from "../middlewares/uploadMiddleware.js"
+import upload, { validateUploadedImage } from "../middlewares/uploadMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 
 const router = Router();
@@ -14,13 +14,13 @@ router.get("/", serviciosController.obtenerServicios);
 router.get("/:id", serviciosController.obtenerServicio);
 
 // ✅ Subir imagen principal de un servicio
-router.put("/:id/imagen-principal", verifyToken, upload.single("imagen"), serviciosController.subirImagenPrincipal);
+router.put("/:id/imagen-principal", verifyToken, upload.single("imagen"), validateUploadedImage, serviciosController.subirImagenPrincipal);
 
 // ✅ Eliminar imagen principal de un servicio
 router.delete("/:id/imagen-principal", verifyToken, serviciosController.borrarImagenPrincipal);
 
 // ✅ Subir imagen adicional a un servicio
-router.put("/:id/imagenes", verifyToken, upload.single("imagen"), serviciosController.subirImagenAdicional);
+router.put("/:id/imagenes", verifyToken, upload.single("imagen"), validateUploadedImage, serviciosController.subirImagenAdicional);
 
 // ✅ Eliminar imagen adicional de un servicio
 router.delete("/:id/imagenes", verifyToken, serviciosController.borrarImagenAdicional);

@@ -1,6 +1,7 @@
 import { pool } from "../db.js";
 import path from "path";
 import fs from "fs-extra";
+import { uploadPath } from "../uploadConfig.js";
 
 const dataFilePath = path.resolve("src/data/services.json");
 
@@ -33,8 +34,6 @@ const readFallbackData = async (): Promise<ReturnType<typeof normalizeServicio>[
         throw new Error(`No se pudo leer el fallback de datos: ${err}`);
     }
 };
-
-const uploadPath = path.resolve("dist/public/assets/images/servicios");
 
 if (!fs.existsSync(uploadPath)) {
     fs.mkdirSync(uploadPath, { recursive: true });
@@ -79,14 +78,22 @@ export const actualizarImagenPrincipal = async (id: string, filename: string) =>
         const imagenPath = `/assets/images/servicios/${filename}`;
         const result = await pool.query("SELECT imagen FROM servicios WHERE id = $1", [id]);
 
-        if (result.rows.length > 0 && result.rows[0].imagen) {
-            const oldImagePath = path.join(uploadPath, path.basename(result.rows[0].imagen));
-            if (fs.existsSync(oldImagePath)) {
-                fs.unlinkSync(oldImagePath);
-            }
+        if (result.rows.length === 0) {
+            throw new Error(`El servicio con ID ${id} no existe`);
         }
 
         await pool.query("UPDATE servicios SET imagen = $1, updated_at = NOW() WHERE id = $2", [imagenPath, id]);
+
+        if (result.rows[0].imagen) {
+            const oldImagePath = path.join(uploadPath, path.basename(result.rows[0].imagen));
+            try {
+                if (fs.existsSync(oldImagePath)) {
+                    fs.unlinkSync(oldImagePath);
+                }
+            } catch {
+                console.warn("No se pudo eliminar la imagen principal anterior tras actualizar la referencia.");
+            }
+        }
 
         return imagenPath;
     } catch (error) {
