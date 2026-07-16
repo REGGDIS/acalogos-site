@@ -1,11 +1,13 @@
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import serviciosRoutes from './routes/servicios.js';
 import authRoutes from "./routes/auth.js";
 import { config } from './config.js';
+import { UploadHttpError } from './middlewares/uploadMiddleware.js';
 
 const app = express();
 const port = config.port;
@@ -61,8 +63,28 @@ app.get('/', (req: Request, res: Response) => {
 
 // ✅ Middleware para manejo de errores
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-    console.error(err.stack);
-    res.status(500).json({ status: 'error', message: 'Algo salió mal, por favor intenta nuevamente.' });
+    if (res.headersSent) {
+        next(err);
+        return;
+    }
+
+    if (err instanceof UploadHttpError) {
+        res.status(err.statusCode).json({ status: 'error', message: err.message });
+        return;
+    }
+
+    if (err instanceof multer.MulterError) {
+        const statusCode = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+        const message = err.code === 'LIMIT_FILE_SIZE'
+            ? 'La imagen supera el tamaño máximo permitido de 5 MiB.'
+            : 'Solicitud de archivo inválida.';
+
+        res.status(statusCode).json({ status: 'error', message });
+        return;
+    }
+
+    console.error('Error interno inesperado:', err);
+    res.status(500).json({ status: 'error', message: 'Error interno del servidor.' });
 });
 
 // ✅ Iniciar servidor
