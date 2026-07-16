@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { apiUrl } from "../config/api";
+import { apiUrl, assetUrl } from "../config/api";
 
 // Definir la interfaz para los servicios
 interface Servicio {
@@ -21,6 +21,12 @@ const AdminPanel = () => {
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [selectedMainFile, setSelectedMainFile] = useState<File | null>(null);
     const navigate = useNavigate();
+
+    const assetUrlWithCacheBuster = (value: string): string => {
+        const url = new URL(assetUrl(value));
+        url.searchParams.set("v", Date.now().toString());
+        return url.toString();
+    };
 
     // Verificar si el usuario está autenticado
     useEffect(() => {
@@ -205,7 +211,7 @@ const AdminPanel = () => {
                 <div className="mt-4">
                     <h3 className="text-xl font-semibold">Imagen Principal</h3>
                     <img
-                        src={apiUrl(selectedServiceDetails.imagen)}
+                        src={assetUrl(selectedServiceDetails.imagen)}
                         alt="Imagen principal"
                         className="w-40 h-auto object-contain rounded-lg mt-2"
                     />
@@ -234,7 +240,7 @@ const AdminPanel = () => {
                         {selectedServiceDetails.imagenes_adicionales.map((img, index) => (
                             <div key={index} className="relative">
                                 <img
-                                    src={`${apiUrl(img)}?v=${Date.now()}`}
+                                    src={assetUrlWithCacheBuster(img)}
                                     alt="Imagen adicional"
                                     className="w-full h-auto object-contain rounded-lg"
                                 />
