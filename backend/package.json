@@ -8,6 +8,7 @@
     "dev": "nodemon --watch src --ext ts,json --exec \"node --loader ts-node/esm src/index.ts\"",
     "start": "node dist/index.js",
     "migrate:images:dry-run": "node --loader ts-node/esm src/scripts/migrateServiciosImagesToCloudinary.ts",
+    "migrate:images:apply": "node --loader ts-node/esm src/scripts/migrateServiciosImagesToCloudinary.ts apply",
     "test": "echo \"No tests yet\" && exit 0"
   },
   "dependencies": {
