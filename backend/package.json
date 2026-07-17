@@ -7,6 +7,7 @@
     "build": "tsc && node copy-public.js",
     "dev": "nodemon --watch src --ext ts,json --exec \"node --loader ts-node/esm src/index.ts\"",
     "start": "node dist/index.js",
+    "migrate:images:dry-run": "node --loader ts-node/esm src/scripts/migrateServiciosImagesToCloudinary.ts",
     "test": "echo \"No tests yet\" && exit 0"
   },
   "dependencies": {
