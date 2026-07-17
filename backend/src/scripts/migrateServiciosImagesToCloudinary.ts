@@ -1,8 +1,8 @@
 import { createHash } from "crypto";
 import { createReadStream } from "fs";
-import { open, stat } from "fs/promises";
+import { open, readFile, stat } from "fs/promises";
 import path from "path";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { MAX_IMAGE_SIZE_BYTES, uploadPath } from "../uploadConfig.js";
 
 const LOCAL_PREFIX = "/assets/images/servicios/";
@@ -33,7 +33,53 @@ type ReferenceReport = {
     proposedPublicId?: string;
     fullHash?: string;
     metadataIssues?: string[];
+    filePath?: string;
 };
+
+type StoredMigrationImage = {
+    secureUrl: string;
+    publicId: string;
+    format: string;
+    bytes: number;
+};
+
+type UploadedMigrationImage = StoredMigrationImage & {
+    kind: ReferenceKind;
+    originalReference: string;
+    shortHash: string;
+    proposedPublicId: string;
+    createdInThisRun: boolean;
+};
+
+type ScriptMode =
+    | { name: "dry-run" }
+    | { name: "apply"; serviceId: number };
+
+type DiagnosticStage =
+    | "pool-connect"
+    | "begin"
+    | "lock-read"
+    | "concurrency-check"
+    | "build-values"
+    | "update"
+    | "commit"
+    | "commit-verification"
+    | "cleanup";
+
+class MigrationStageError extends Error {
+    constructor(
+        readonly stage: DiagnosticStage,
+        readonly sqlState: string = "-",
+        readonly cleanupAllowed: boolean = true,
+    ) {
+        super("migration-stage-error");
+    }
+}
+
+type PersistMigrationResult =
+    | { status: "confirmed" }
+    | { status: "failed-cleanup-allowed"; diagnostic: MigrationStageError }
+    | { status: "manual-review"; diagnostic: MigrationStageError };
 
 type Counters = {
     services: number;
@@ -63,6 +109,32 @@ if (args.includes("--apply") || process.env.npm_config_apply !== undefined || pr
     console.error("Este inventario es solo dry-run. El argumento --apply no esta permitido en esta fase.");
     process.exit(2);
 }
+
+const parseMode = (): ScriptMode => {
+    if (args.length === 0) {
+        return { name: "dry-run" };
+    }
+
+    if (args[0] !== "apply" || args.length !== 2) {
+        console.error("Uso invalido. Esta fase solo permite dry-run sin argumentos o apply <serviceId> con confirmacion explicita.");
+        process.exit(2);
+    }
+
+    const serviceId = Number(args[1]);
+    if (!Number.isInteger(serviceId) || serviceId <= 0) {
+        console.error("Uso invalido. Debe indicar un ID de servicio entero positivo.");
+        process.exit(2);
+    }
+
+    if (process.env.MIGRATE_IMAGES_CONFIRM !== "MIGRATE_ONE_SERVICE") {
+        console.error("Confirmacion requerida. La migracion controlada exige MIGRATE_IMAGES_CONFIRM=MIGRATE_ONE_SERVICE.");
+        process.exit(2);
+    }
+
+    return { name: "apply", serviceId };
+};
+
+const mode = parseMode();
 
 const initialCounters = (): Counters => ({
     services: 0,
@@ -235,6 +307,7 @@ const analyzeLocalReference = async (
         fullHash,
         proposedPublicId: buildProposedPublicId(service.id, kind, shortHash),
         metadataIssues,
+        filePath: resolved.filePath,
     };
 };
 
@@ -430,53 +503,541 @@ const validateAdditionalMetadataKeys = (
     return reports;
 };
 
+const analyzeServices = async (services: ServicioRow[], counters: Counters): Promise<ReferenceReport[]> => {
+    const reports: ReferenceReport[] = [];
+    counters.services = services.length;
+
+    for (const service of services) {
+        const additionalPublicIds = normalizeAdditionalPublicIds(service.imagenes_adicionales_public_ids);
+        const additionalReferences = service.imagenes_adicionales ?? [];
+
+        if (!additionalPublicIds.isValid) {
+            counters.inconsistentMetadata += 1;
+            reports.push(buildMetadataReport(service, "imagenes_adicionales_public_ids no es un objeto JSON valido para metadata remota"));
+        }
+
+        reports.push(await analyzeReference(service, "principal", service.imagen, additionalPublicIds.values, counters));
+
+        for (const additionalReference of additionalReferences) {
+            reports.push(await analyzeReference(service, "adicional", additionalReference, additionalPublicIds.values, counters));
+        }
+
+        reports.push(...validateAdditionalMetadataKeys(service, additionalReferences, additionalPublicIds.values, counters));
+    }
+
+    return reports;
+};
+
+const hasBlockingErrors = (counters: Counters): boolean => (
+    counters.missingFiles > 0 || counters.invalidFiles > 0 || counters.inconsistentMetadata > 0
+);
+
+const sameAdditionalReferences = (left: string[] | null, right: string[] | null): boolean => {
+    const leftValues = left ?? [];
+    const rightValues = right ?? [];
+
+    return leftValues.length === rightValues.length && leftValues.every((value, index) => value === rightValues[index]);
+};
+
+const getSafeSqlState = (error: unknown): string => {
+    if (!error || typeof error !== "object") return "-";
+
+    const code = (error as { code?: unknown }).code;
+    return typeof code === "string" && /^[a-z0-9]{5}$/i.test(code) ? code : "-";
+};
+
+const toMigrationStageError = (stage: DiagnosticStage, error: unknown, cleanupAllowed = true): MigrationStageError => {
+    if (error instanceof MigrationStageError) {
+        return error;
+    }
+
+    return new MigrationStageError(stage, getSafeSqlState(error), cleanupAllowed);
+};
+
+const printDiagnostic = (error: MigrationStageError): void => {
+    console.error(`etapa=${error.stage} codigo_postgres=${error.sqlState}`);
+};
+
+const normalizeImageFormat = (format: string | undefined): string => {
+    const normalized = format?.trim().toLowerCase();
+    return normalized === "jpg" ? "jpeg" : normalized ?? "";
+};
+
+const isValidHttpsUrl = (value: string): boolean => {
+    try {
+        return new URL(value).protocol === "https:";
+    } catch {
+        return false;
+    }
+};
+
+const validateExistingImage = (
+    serviceId: number,
+    candidate: ReferenceReport,
+    existingImage: StoredMigrationImage,
+): void => {
+    if (
+        existingImage.publicId !== candidate.proposedPublicId
+        || !isValidHttpsUrl(existingImage.secureUrl)
+        || existingImage.bytes !== candidate.sizeBytes
+        || normalizeImageFormat(existingImage.format) !== normalizeImageFormat(candidate.format)
+    ) {
+        console.error(
+            `Recurso remoto preexistente incompatible servicio=${serviceId} tipo=${candidate.kind} hash_corto=${candidate.shortHash ?? "-"}.`,
+        );
+        throw new Error("recurso remoto preexistente incompatible");
+    }
+};
+
+const findDuplicateGroupsWithinService = (reports: ReferenceReport[]): ReferenceReport[][] => {
+    const byHash = new Map<string, ReferenceReport[]>();
+
+    for (const report of reports) {
+        if (!report.fullHash) continue;
+
+        const current = byHash.get(report.fullHash) ?? [];
+        current.push(report);
+        byHash.set(report.fullHash, current);
+    }
+
+    return [...byHash.values()].filter((group) => group.length > 1);
+};
+
+const printDuplicateGroupsWithinService = (groups: ReferenceReport[][]): void => {
+    for (const group of groups) {
+        const roles = group.map((item) => item.kind).join(",");
+        console.error(
+            `Duplicado local dentro del servicio roles=${roles} hash_corto=${group[0].shortHash ?? "-"} tamano_bytes=${group[0].sizeBytes ?? "-"}.`,
+        );
+    }
+};
+
+const cleanupCreatedImages = async (
+    createdImages: UploadedMigrationImage[],
+    deleteImage: (publicId: string) => Promise<void>,
+): Promise<void> => {
+    for (const image of createdImages) {
+        if (!image.createdInThisRun) continue;
+
+        try {
+            await deleteImage(image.publicId);
+        } catch {
+            printDiagnostic(new MigrationStageError("cleanup"));
+            console.warn("ADVERTENCIA: no se pudo completar la limpieza compensatoria de un recurso remoto creado en esta ejecucion.");
+        }
+    }
+};
+
+const printApplyItem = (serviceId: number, image: UploadedMigrationImage, status: "reutilizado" | "creado"): void => {
+    console.log(
+        [
+            `servicio=${serviceId}`,
+            `tipo=${image.kind}`,
+            `hash_corto=${image.shortHash}`,
+            `public_id_propuesto=${image.proposedPublicId}`,
+            `estado=${status}`,
+        ].join(" | "),
+    );
+};
+
+const uploadMigrationCandidates = async (
+    serviceId: number,
+    candidates: ReferenceReport[],
+): Promise<{
+    uploadedImages: UploadedMigrationImage[];
+    deleteImage: (publicId: string) => Promise<void>;
+}> => {
+    const storage = await import("../services/imageStorageService.js");
+    const uploadedImages: UploadedMigrationImage[] = [];
+
+    try {
+        for (const candidate of candidates) {
+            if (!candidate.filePath || !candidate.proposedPublicId || !candidate.shortHash) {
+                throw new Error("candidato invalido");
+            }
+
+            const existingImage = await storage.getImageByPublicId(candidate.proposedPublicId);
+            if (existingImage) {
+                validateExistingImage(serviceId, candidate, existingImage);
+                const reusedImage: UploadedMigrationImage = {
+                    ...existingImage,
+                    kind: candidate.kind,
+                    originalReference: candidate.referenceLabel,
+                    shortHash: candidate.shortHash,
+                    proposedPublicId: candidate.proposedPublicId,
+                    createdInThisRun: false,
+                };
+                uploadedImages.push(reusedImage);
+                printApplyItem(serviceId, reusedImage, "reutilizado");
+                continue;
+            }
+
+            const uploadedImage = await storage.uploadImage(await readFile(candidate.filePath), {
+                publicId: candidate.proposedPublicId,
+                overwrite: false,
+            });
+            const createdImage: UploadedMigrationImage = {
+                ...uploadedImage,
+                kind: candidate.kind,
+                originalReference: candidate.referenceLabel,
+                shortHash: candidate.shortHash,
+                proposedPublicId: candidate.proposedPublicId,
+                createdInThisRun: true,
+            };
+            uploadedImages.push(createdImage);
+            printApplyItem(serviceId, createdImage, "creado");
+        }
+
+        return { uploadedImages, deleteImage: storage.deleteImage };
+    } catch {
+        await cleanupCreatedImages(uploadedImages, storage.deleteImage);
+        throw new Error("No se pudo completar la carga remota de imagenes.");
+    }
+};
+
+const buildMigratedValues = (
+    service: ServicioRow,
+    uploadedImages: UploadedMigrationImage[],
+): {
+    imagen: string | null;
+    imagenPublicId: string | null;
+    imagenesAdicionales: string[];
+    imagenesAdicionalesPublicIds: Record<string, string>;
+} => {
+    const byOriginalReference = new Map(uploadedImages.map((image) => [image.originalReference, image]));
+    const primaryUpload = service.imagen ? byOriginalReference.get(service.imagen) : undefined;
+    const currentAdditionalPublicIds = normalizeAdditionalPublicIds(service.imagenes_adicionales_public_ids).values;
+    const imagenesAdicionalesPublicIds: Record<string, string> = {};
+
+    const imagen = primaryUpload?.secureUrl ?? service.imagen;
+    const imagenPublicId = primaryUpload?.publicId ?? service.imagen_public_id;
+    const imagenesAdicionales = (service.imagenes_adicionales ?? []).map((reference) => {
+        const uploaded = byOriginalReference.get(reference);
+        if (uploaded) {
+            imagenesAdicionalesPublicIds[uploaded.secureUrl] = uploaded.publicId;
+            return uploaded.secureUrl;
+        }
+
+        if (isHttpsUrl(reference)) {
+            imagenesAdicionalesPublicIds[reference] = currentAdditionalPublicIds[reference];
+        }
+
+        return reference;
+    });
+
+    return {
+        imagen,
+        imagenPublicId,
+        imagenesAdicionales,
+        imagenesAdicionalesPublicIds,
+    };
+};
+
+type MigratedValues = ReturnType<typeof buildMigratedValues>;
+
+const samePublicIdMap = (left: Record<string, string>, right: Record<string, string>): boolean => {
+    const leftEntries = Object.entries(left).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
+    const rightEntries = Object.entries(right).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
+
+    return leftEntries.length === rightEntries.length
+        && leftEntries.every(([key, value], index) => key === rightEntries[index][0] && value === rightEntries[index][1]);
+};
+
+const isSerializablePublicIdMap = (value: Record<string, string>): boolean => {
+    try {
+        if (!Object.entries(value).every(([key, publicId]) => isValidHttpsUrl(key) && typeof publicId === "string" && publicId.trim() !== "")) {
+            return false;
+        }
+
+        const serialized = JSON.stringify(value);
+        if (!serialized) return false;
+
+        const parsed: unknown = JSON.parse(serialized);
+        return !!parsed && typeof parsed === "object" && !Array.isArray(parsed);
+    } catch {
+        return false;
+    }
+};
+
+const isOriginalServicePersisted = (service: ServicioRow, original: ServicioRow): boolean => (
+    service.imagen === original.imagen
+    && service.imagen_public_id === original.imagen_public_id
+    && sameAdditionalReferences(service.imagenes_adicionales, original.imagenes_adicionales)
+    && samePublicIdMap(
+        normalizeAdditionalPublicIds(service.imagenes_adicionales_public_ids).values,
+        normalizeAdditionalPublicIds(original.imagenes_adicionales_public_ids).values,
+    )
+);
+
+const isMigrationPersisted = (service: ServicioRow, migratedValues: MigratedValues): boolean => (
+    service.imagen === migratedValues.imagen
+    && service.imagen_public_id === migratedValues.imagenPublicId
+    && sameAdditionalReferences(service.imagenes_adicionales, migratedValues.imagenesAdicionales)
+    && samePublicIdMap(normalizeAdditionalPublicIds(service.imagenes_adicionales_public_ids).values, migratedValues.imagenesAdicionalesPublicIds)
+);
+
+const readServiceForVerification = async (pool: Pool, serviceId: number): Promise<ServicioRow | null> => {
+    const result = await pool.query<ServicioRow>(`
+        SELECT id, nombre, imagen, imagenes_adicionales, imagen_public_id, imagenes_adicionales_public_ids
+        FROM public.servicios
+        WHERE id = $1
+    `, [serviceId]);
+
+    return result.rows[0] ?? null;
+};
+
+const persistMigratedService = async (
+    pool: Pool,
+    service: ServicioRow,
+    uploadedImages: UploadedMigrationImage[],
+): Promise<PersistMigrationResult> => {
+    let client: PoolClient | null = null;
+    let phase: "before-transaction" | "transaction-started" | "update-executed" | "commit-sent" | "commit-confirmed" = "before-transaction";
+    let currentStage: DiagnosticStage = "pool-connect";
+    let migratedValues: MigratedValues | null = null;
+
+    try {
+        try {
+            client = await pool.connect();
+        } catch (error) {
+            throw toMigrationStageError("pool-connect", error);
+        }
+
+        currentStage = "begin";
+        try {
+            await client.query("BEGIN");
+        } catch (error) {
+            throw toMigrationStageError("begin", error);
+        }
+        phase = "transaction-started";
+
+        currentStage = "lock-read";
+        let lockedResult;
+        try {
+            lockedResult = await client.query<ServicioRow>(`
+                SELECT id, nombre, imagen, imagenes_adicionales, imagen_public_id, imagenes_adicionales_public_ids
+                FROM public.servicios
+                WHERE id = $1
+                FOR UPDATE
+            `, [service.id]);
+        } catch (error) {
+            throw toMigrationStageError("lock-read", error);
+        }
+        const lockedService = lockedResult.rows[0];
+
+        currentStage = "concurrency-check";
+        if (!lockedService || !isOriginalServicePersisted(lockedService, service)) {
+            throw new MigrationStageError("concurrency-check", "-", true);
+        }
+
+        currentStage = "build-values";
+        try {
+            migratedValues = buildMigratedValues(service, uploadedImages);
+            if (!Array.isArray(migratedValues.imagenesAdicionales)
+                || !migratedValues.imagenesAdicionales.every((value) => typeof value === "string")
+                || !isSerializablePublicIdMap(migratedValues.imagenesAdicionalesPublicIds)
+            ) {
+                throw new MigrationStageError("build-values", "-", true);
+            }
+        } catch (error) {
+            throw toMigrationStageError("build-values", error);
+        }
+
+        currentStage = "update";
+        let updateResult;
+        try {
+            updateResult = await client.query(`
+            UPDATE public.servicios
+            SET imagen = $1::text,
+                imagen_public_id = $2::text,
+                imagenes_adicionales = $3::text[],
+                imagenes_adicionales_public_ids = $4::jsonb,
+                updated_at = NOW()
+            WHERE id = $5
+            `, [
+                migratedValues.imagen,
+                migratedValues.imagenPublicId,
+                migratedValues.imagenesAdicionales,
+                JSON.stringify(migratedValues.imagenesAdicionalesPublicIds),
+                service.id,
+            ]);
+        } catch (error) {
+            throw toMigrationStageError("update", error);
+        }
+
+        if (updateResult.rowCount !== 1) {
+            throw new MigrationStageError("update", "-", true);
+        }
+        phase = "update-executed";
+
+        phase = "commit-sent";
+        currentStage = "commit";
+        try {
+            await client.query("COMMIT");
+        } catch (error) {
+            throw toMigrationStageError("commit", error, false);
+        }
+        phase = "commit-confirmed";
+        return { status: "confirmed" };
+    } catch (error) {
+        if (phase === "commit-sent") {
+            currentStage = "commit-verification";
+            const commitDiagnostic = toMigrationStageError("commit", error, false);
+            try {
+                const verifiedService = await readServiceForVerification(pool, service.id);
+                if (verifiedService && migratedValues && isMigrationPersisted(verifiedService, migratedValues)) {
+                    console.warn("ADVERTENCIA: se recupero una confirmacion ambigua de PostgreSQL; no se eliminaran recursos remotos.");
+                    return { status: "confirmed" };
+                }
+
+                if (verifiedService && isOriginalServicePersisted(verifiedService, service)) {
+                    return { status: "failed-cleanup-allowed", diagnostic: commitDiagnostic };
+                }
+            } catch {
+                console.warn("ADVERTENCIA: no se pudo verificar el resultado del COMMIT; se requiere revision manual.");
+                return { status: "manual-review", diagnostic: new MigrationStageError("commit-verification", "-", false) };
+            }
+
+            console.warn("ADVERTENCIA: resultado de COMMIT ambiguo; se requiere revision manual.");
+            return { status: "manual-review", diagnostic: new MigrationStageError("commit-verification", "-", false) };
+        }
+
+        if (client && phase !== "before-transaction" && phase !== "commit-confirmed") {
+            try {
+                await client.query("ROLLBACK");
+            } catch {
+                console.warn("ADVERTENCIA: no se pudo confirmar el rollback de PostgreSQL.");
+            }
+        }
+
+        throw toMigrationStageError(currentStage, error);
+    } finally {
+        client?.release();
+    }
+};
+
+const runDryRun = async (pool: Pool): Promise<number> => {
+    const counters = initialCounters();
+
+    const result = await pool.query<ServicioRow>(`
+        SELECT id, nombre, imagen, imagenes_adicionales, imagen_public_id, imagenes_adicionales_public_ids
+        FROM public.servicios
+        ORDER BY id
+    `);
+
+    const reports = await analyzeServices(result.rows, counters);
+
+    console.log("Inventario de imagenes de servicios (dry-run)\n");
+    for (const report of reports) {
+        printReference(report);
+    }
+
+    markDuplicateContents(reports, counters);
+    printSummary(counters);
+
+    return hasBlockingErrors(counters) ? 1 : 0;
+};
+
+const runApply = async (pool: Pool, serviceId: number): Promise<number> => {
+    const counters = initialCounters();
+
+    const result = await pool.query<ServicioRow>(`
+        SELECT id, nombre, imagen, imagenes_adicionales, imagen_public_id, imagenes_adicionales_public_ids
+        FROM public.servicios
+        WHERE id = $1
+    `, [serviceId]);
+
+    if (result.rows.length === 0) {
+        console.error("No se encontro el servicio solicitado para migracion.");
+        return 1;
+    }
+
+    const service = result.rows[0];
+    const reports = await analyzeServices(result.rows, counters);
+    const localCandidates = reports.filter((report) => (
+        report.status === "valid-local"
+        && report.metadataIssues?.length === 0
+        && report.filePath
+        && report.proposedPublicId
+    ));
+
+    console.log(`Migracion controlada de imagenes de servicio (apply) servicio=${serviceId}\n`);
+    for (const report of reports) {
+        printReference(report);
+    }
+
+    if (hasBlockingErrors(counters)) {
+        console.error("Migracion detenida: el servicio tiene referencias invalidas o metadata inconsistente.");
+        printSummary(counters);
+        return 1;
+    }
+
+    const duplicateGroupsWithinService = findDuplicateGroupsWithinService(localCandidates);
+    if (duplicateGroupsWithinService.length > 0) {
+        printDuplicateGroupsWithinService(duplicateGroupsWithinService);
+        console.error("Migracion detenida: existen contenidos locales duplicados dentro del servicio solicitado.");
+        return 1;
+    }
+
+    if (localCandidates.length === 0) {
+        console.log("No hay candidatos locales para migrar en este servicio.");
+        printSummary(counters);
+        return 0;
+    }
+
+    let uploadedImages: UploadedMigrationImage[] = [];
+    let deleteImage: ((publicId: string) => Promise<void>) | null = null;
+
+    try {
+        const uploadResult = await uploadMigrationCandidates(serviceId, localCandidates);
+        uploadedImages = uploadResult.uploadedImages;
+        deleteImage = uploadResult.deleteImage;
+
+        const persistResult = await persistMigratedService(pool, service, uploadedImages);
+        if (persistResult.status === "manual-review") {
+            printDiagnostic(persistResult.diagnostic);
+            console.error("Error en migracion controlada: resultado de PostgreSQL ambiguo; se requiere revision manual.");
+            return 1;
+        }
+
+        if (persistResult.status === "failed-cleanup-allowed") {
+            printDiagnostic(persistResult.diagnostic);
+            await cleanupCreatedImages(uploadedImages, deleteImage);
+            console.error("Error en migracion controlada: PostgreSQL no confirmo los cambios y se ejecuto limpieza compensatoria.");
+            return 1;
+        }
+
+        console.log("Migracion del servicio confirmada en PostgreSQL.");
+        return 0;
+    } catch (error) {
+        const migrationError = error instanceof MigrationStageError ? error : null;
+        if (migrationError) {
+            printDiagnostic(migrationError);
+        }
+
+        if (deleteImage && (!migrationError || migrationError.cleanupAllowed)) {
+            await cleanupCreatedImages(uploadedImages, deleteImage);
+        }
+
+        console.error("Error en migracion controlada: no se pudo completar la migracion del servicio.");
+        return 1;
+    }
+};
+
 const run = async (): Promise<number> => {
     let pool: Pool | null = null;
-    const counters = initialCounters();
-    const reports: ReferenceReport[] = [];
 
     try {
         const db = await import("../db.js");
         pool = db.pool;
 
-        const result = await pool.query<ServicioRow>(`
-            SELECT id, nombre, imagen, imagenes_adicionales, imagen_public_id, imagenes_adicionales_public_ids
-            FROM public.servicios
-            ORDER BY id
-        `);
+        const exitCode = mode.name === "dry-run"
+            ? await runDryRun(pool)
+            : await runApply(pool, mode.serviceId);
 
-        counters.services = result.rows.length;
-
-        for (const service of result.rows) {
-            const additionalPublicIds = normalizeAdditionalPublicIds(service.imagenes_adicionales_public_ids);
-            const additionalReferences = service.imagenes_adicionales ?? [];
-
-            if (!additionalPublicIds.isValid) {
-                counters.inconsistentMetadata += 1;
-                reports.push(buildMetadataReport(service, "imagenes_adicionales_public_ids no es un objeto JSON valido para metadata remota"));
-            }
-
-            reports.push(await analyzeReference(service, "principal", service.imagen, additionalPublicIds.values, counters));
-
-            for (const additionalReference of additionalReferences) {
-                reports.push(await analyzeReference(service, "adicional", additionalReference, additionalPublicIds.values, counters));
-            }
-
-            reports.push(...validateAdditionalMetadataKeys(service, additionalReferences, additionalPublicIds.values, counters));
-        }
-
-        console.log("Inventario de imagenes de servicios (dry-run)\n");
-        for (const report of reports) {
-            printReference(report);
-        }
-
-        markDuplicateContents(reports, counters);
-        printSummary(counters);
-
-        const hasErrors = counters.missingFiles > 0 || counters.invalidFiles > 0 || counters.inconsistentMetadata > 0;
-        return hasErrors ? 1 : 0;
+        return exitCode;
     } catch {
-        console.error("Error en inventario dry-run: no se pudo consultar PostgreSQL o completar el inventario.");
+        console.error("Error en migracion de imagenes: no se pudo consultar PostgreSQL o completar la operacion.");
         return 1;
     } finally {
         if (pool) {
