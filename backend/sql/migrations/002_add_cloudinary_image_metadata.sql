@@ -1,10 +1,10 @@
 BEGIN;
 
 ALTER TABLE public.servicios
-    ADD COLUMN IF NOT EXISTS imagen_public_id TEXT NULL;
+    ADD COLUMN imagen_public_id TEXT NULL;
 
 ALTER TABLE public.servicios
-    ADD COLUMN IF NOT EXISTS imagenes_adicionales_public_ids JSONB NOT NULL DEFAULT '{}'::jsonb;
+    ADD COLUMN imagenes_adicionales_public_ids JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 COMMENT ON COLUMN public.servicios.imagen_public_id IS
     'Guarda el Public ID de Cloudinary asociado a imagen. Las rutas locales deben mantener NULL.';
