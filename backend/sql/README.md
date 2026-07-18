@@ -178,7 +178,7 @@ Referencias: [conexión con `psql` en Neon](https://neon.com/docs/connect/query-
 
 ### Preflight y aplicación
 
-El wrapper de validación ejecuta el archivo de checks, analiza su único resultado JSON y falla si alguna comprobación es falsa. El informe solo contiene etapa, base, versión PostgreSQL, versión/cifrado TLS y booleanos:
+El wrapper de validación ejecuta el archivo de checks, analiza su único resultado JSON y falla si alguna comprobación estructural es falsa. El informe contiene etapa, base, versión PostgreSQL, una observación informativa de `pg_stat_ssl` y veinte comprobaciones booleanas. La observación TLS no participa en `all_checks_passed`: en Neon, el proxy puede terminar TLS antes de la sesión visible para PostgreSQL. La garantía TLS principal es la validación del cliente mediante `sslmode=verify-full` antes de ejecutar este archivo.
 
 ```powershell
 function Invoke-ServiciosSchemaCheck {
@@ -225,7 +225,6 @@ function Invoke-ServiciosSchemaCheck {
         'sequence_unused'
         'table_has_zero_rows'
         'target_database'
-        'tls_active'
     )
 
     $stageProperty = $report.PSObject.Properties['stage']
@@ -342,7 +341,7 @@ try {
 }
 ```
 
-`-X` ignora archivos `psqlrc`, `-w` impide prompts de contraseña y `ON_ERROR_STOP=1` detiene cada script ante el primer error. El preflight `empty` confirma `neondb`, PostgreSQL 14, TLS, permisos sobre `public` y ausencia de tablas o secuencias antes de ejecutar DDL.
+`-X` ignora archivos `psqlrc`, `-w` impide prompts de contraseña y `ON_ERROR_STOP=1` detiene cada script ante el primer error. El preflight `empty` confirma `neondb`, PostgreSQL 14, permisos sobre `public` y ausencia de tablas o secuencias antes de ejecutar DDL. TLS se exige en el cliente mediante `sslmode=verify-full`; el valor de `pg_stat_ssl` se conserva en el informe solo como diagnóstico y puede ser `false` detrás del proxy de Neon.
 
 `PGDATABASE` acepta los mismos parámetros que `dbname`, por lo que puede contener temporalmente la URI sin pasarla en la línea de comandos. Consulta [variables de entorno de libpq](https://www.postgresql.org/docs/14/libpq-envars.html), [`psql` 14](https://www.postgresql.org/docs/14/app-psql.html) y [`pg_stat_ssl`](https://www.postgresql.org/docs/14/monitoring-stats.html#MONITORING-PG-STAT-SSL-VIEW).
 

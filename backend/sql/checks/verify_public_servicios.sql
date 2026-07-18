@@ -213,8 +213,6 @@ checks (check_name, ok) AS (
     UNION ALL
     SELECT 'postgresql_14', current_setting('server_version_num')::integer BETWEEN 140000 AND 149999
     UNION ALL
-    SELECT 'tls_active', COALESCE((SELECT ssl FROM tls_status), false)
-    UNION ALL
     SELECT 'public_schema_exists', pg_catalog.to_regnamespace('public') IS NOT NULL
     UNION ALL
     SELECT 'public_schema_usage', has_schema_privilege(current_user, 'public', 'USAGE')
