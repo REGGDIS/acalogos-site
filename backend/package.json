@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "migrate:images:dry-run": "node --loader ts-node/esm src/scripts/migrateServiciosImagesToCloudinary.ts",
     "migrate:images:apply": "node --loader ts-node/esm src/scripts/migrateServiciosImagesToCloudinary.ts apply",
-    "test": "echo \"No tests yet\" && exit 0"
+    "test": "node --loader ts-node/esm --test tests/config.test.ts tests/serviciosFallbackPolicy.test.ts"
   },
   "dependencies": {
     "cloudinary": "^2.10.0",
