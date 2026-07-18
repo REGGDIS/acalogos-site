@@ -2,8 +2,10 @@ import { pool } from "../db.js";
 import path from "path";
 import fs from "fs-extra";
 import type { PoolClient } from "pg";
+import { config } from "../config.js";
 import { ImagenReferenciaNoEncontradaError, ServicioNoEncontradoError } from "../errors/serviciosErrors.js";
 import { deleteImage, uploadImage, type StoredImage } from "./imageStorageService.js";
+import { ensureServiciosJsonFallbackAllowed } from "./serviciosFallbackPolicy.js";
 
 const dataFilePath = path.resolve("src/data/services.json");
 
@@ -155,6 +157,8 @@ export const obtenerTodosLosServicios = async () => {
         const result = await pool.query("SELECT * FROM servicios ORDER BY id");
         return result.rows;
     } catch (error) {
+        ensureServiciosJsonFallbackAllowed(config.db, error);
+
         // Si falla la BD, devolver datos de ejemplo desde JSON
         console.warn("DB error al obtener todos los servicios:", error);
         try {
@@ -173,6 +177,8 @@ export const obtenerServicioPorId = async (id: string) => {
         const result = await pool.query("SELECT * FROM servicios WHERE id = $1", [id]);
         return result.rows[0] || null;
     } catch (error) {
+        ensureServiciosJsonFallbackAllowed(config.db, error);
+
         // Fallback a JSON
         try {
             const fallback = await readFallbackData();
