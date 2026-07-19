@@ -7,6 +7,8 @@ Esta carpeta versiona únicamente el esquema activo de `public.servicios`. No co
 - `migrations/001_create_public_servicios.sql`: crea la tabla base de nueve columnas, su secuencia serial y la clave primaria.
 - `migrations/002_add_cloudinary_image_metadata.sql`: añade las dos columnas y comentarios de metadata Cloudinary.
 - `checks/verify_public_servicios.sql`: comprueba los estados `empty`, `base` y `final` sin modificar la base.
+- `roles/001_create_acalogos_app_prod.sql`: prepara el rol mínimo de producción mediante modos opt-in.
+- `checks/verify_acalogos_app_prod.sql`: comprueba los privilegios efectivos del rol sin modificar la base.
 - `rollbacks/002_add_cloudinary_image_metadata.sql`: revierte únicamente la segunda migración.
 
 Los archivos de `rollbacks` nunca deben incluirse en un glob o bucle que aplique migraciones forward.
@@ -359,6 +361,229 @@ try {
 - No automatices `DROP TABLE`. Volver a una base vacía es una operación destructiva separada.
 
 El `finally` exterior elimina las URLs del proceso, limpia el portapapeles y restaura `PGDATABASE` y `PGCONNECT_TIMEOUT` incluso si falla la lectura, la validación, `psql` o una migración.
+
+## Rol mínimo de la aplicación
+
+El backend de producción debe conectarse como `acalogos_app_prod` mediante una URL pooled. El rol owner y `DIRECT_DATABASE_URL` quedan reservados para migraciones y tareas administrativas. El archivo `roles/001_create_acalogos_app_prod.sql` no contiene contraseña y es seguro por defecto: si se ejecuta sin variables, solo muestra el preflight de lectura.
+
+Los roles creados desde Neon Console, CLI o API reciben membresía en `neon_superuser`. Por eso `acalogos_app_prod` debe crearse con el SQL versionado desde una conexión directa del owner. No uses **Add role** para este rol.
+
+### Preflight de solo lectura
+
+Con la URL directa del owner cargada únicamente en `PGDATABASE`, ejecuta desde la raíz del repositorio:
+
+```powershell
+& psql -X -w -v ON_ERROR_STOP=1 `
+    -f '.\backend\sql\roles\001_create_acalogos_app_prod.sql'
+if ($LASTEXITCODE -ne 0) {
+    throw 'Falló el preflight del rol de aplicación.'
+}
+```
+
+Revisa antes de continuar:
+
+- qué privilegios `CREATE` y `TEMPORARY` recibe `PUBLIC`;
+- qué roles con login los tienen de forma efectiva;
+- qué roles pueden crear objetos en `public`;
+- quién posee `neondb`, `public`, `servicios` y `servicios_id_seq`.
+
+La salida contiene nombres de roles y objetos, pero no URLs, contraseñas ni ACL completas. No habilites ningún modo hasta confirmar que revocar privilegios a `PUBLIC` no afectará integraciones legítimas.
+
+### Creación `NOLOGIN` y grants
+
+La provisión es explícita y está separada del hardening global:
+
+```powershell
+& psql -X -w -v ON_ERROR_STOP=1 `
+    -v provision_role=true `
+    -f '.\backend\sql\roles\001_create_acalogos_app_prod.sql'
+if ($LASTEXITCODE -ne 0) {
+    throw 'Falló la provisión del rol de aplicación.'
+}
+```
+
+Este modo crea el rol como `NOLOGIN`, sin contraseña ni membresías. Concede solamente `CONNECT` en `neondb`, `USAGE` en `public`, `SELECT` en `public.servicios` y `UPDATE` sobre las cinco columnas usadas por la gestión de imágenes. No concede permisos sobre `public.servicios_id_seq`.
+
+La provisión falla intencionalmente si el rol ya existe. No la repitas a ciegas: ejecuta primero el check y diagnostica el estado existente.
+
+### Hardening global
+
+PostgreSQL 14 puede conceder mediante `PUBLIC` privilegios que no se eliminan revocándolos solo a `acalogos_app_prod`. El bloque opt-in revoca:
+
+- `CREATE` sobre `neondb` a `PUBLIC`;
+- `TEMPORARY` sobre `neondb` a `PUBLIC`;
+- `CREATE` sobre el esquema `public` a `PUBLIC`.
+
+Estas revocaciones afectan a **todos** los roles de la base. Aplícalas únicamente después de revisar y aprobar el preflight:
+
+```powershell
+& psql -X -w -v ON_ERROR_STOP=1 `
+    -v apply_global_hardening=true `
+    -f '.\backend\sql\roles\001_create_acalogos_app_prod.sql'
+if ($LASTEXITCODE -ne 0) {
+    throw 'Falló el hardening global de neondb.'
+}
+```
+
+`provision_role` y `apply_global_hardening` son mutuamente excluyentes. El script detiene la ejecución si ambos se habilitan juntos.
+
+Después del hardening y antes de activar el login, todos los checks deben ser verdaderos:
+
+```powershell
+function Assert-AppRoleReport {
+    param(
+        [Parameter(Mandatory)] [object] $Report,
+        [Parameter(Mandatory)] [bool] $ExpectedLogin
+    )
+
+    $expectedCheckKeys = @(
+        'database_connect_only'
+        'login_state_expected'
+        'other_public_relations_inaccessible'
+        'public_schema_usage_only'
+        'role_attributes_restricted'
+        'role_exists'
+        'search_path_exact'
+        'sequence_privileges_absent'
+        'servicios_forbidden_table_privileges_absent'
+        'servicios_select_complete'
+        'servicios_update_columns_exact'
+        'target_database_exact'
+        'zero_grant_options'
+        'zero_memberships'
+        'zero_ownership'
+    )
+
+    $targetDatabaseProperty = $Report.PSObject.Properties['target_database']
+    $expectedLoginProperty = $Report.PSObject.Properties['expected_login']
+    $allChecksProperty = $Report.PSObject.Properties['all_checks_passed']
+    $checksProperty = $Report.PSObject.Properties['checks']
+
+    if ($null -eq $targetDatabaseProperty -or
+        $targetDatabaseProperty.Value -isnot [string] -or
+        $targetDatabaseProperty.Value -cne 'neondb') {
+        throw 'El informe no corresponde a la base neondb.'
+    }
+
+    if ($null -eq $expectedLoginProperty -or
+        $expectedLoginProperty.Value -isnot [bool] -or
+        $expectedLoginProperty.Value -ne $ExpectedLogin) {
+        throw 'El informe no corresponde al estado LOGIN solicitado.'
+    }
+
+    if ($null -eq $allChecksProperty -or
+        $allChecksProperty.Value -isnot [bool]) {
+        throw 'all_checks_passed no es un booleano válido.'
+    }
+
+    if ($null -eq $checksProperty -or
+        $null -eq $checksProperty.Value -or
+        $checksProperty.Value -isnot [System.Management.Automation.PSCustomObject]) {
+        throw 'El informe no contiene un objeto checks válido.'
+    }
+
+    $checkProperties = @($checksProperty.Value.PSObject.Properties)
+    $actualCheckKeys = @($checkProperties | ForEach-Object Name)
+    $missingCheckKeys = @($expectedCheckKeys | Where-Object { $_ -notin $actualCheckKeys })
+    $unexpectedCheckKeys = @($actualCheckKeys | Where-Object { $_ -notin $expectedCheckKeys })
+    if ($missingCheckKeys.Count -gt 0 -or $unexpectedCheckKeys.Count -gt 0) {
+        throw 'El informe no contiene exactamente las comprobaciones esperadas.'
+    }
+
+    $nonBooleanChecks = @($checkProperties | Where-Object { $_.Value -isnot [bool] })
+    if ($nonBooleanChecks.Count -gt 0) {
+        throw 'El informe contiene comprobaciones que no son booleanas.'
+    }
+
+    $failedChecks = @($checkProperties | Where-Object { -not $_.Value })
+    if ($failedChecks.Count -gt 0 -or -not $allChecksProperty.Value) {
+        throw 'El rol no tiene los privilegios efectivos esperados.'
+    }
+}
+
+$roleReport = & psql -X -w -q -A -t -v ON_ERROR_STOP=1 `
+    -v expected_login=false `
+    -f '.\backend\sql\checks\verify_acalogos_app_prod.sql'
+if ($LASTEXITCODE -ne 0) {
+    throw 'No se pudieron verificar los privilegios del rol NOLOGIN.'
+}
+
+$parsedRoleReport = ($roleReport -join "`n") | ConvertFrom-Json -ErrorAction Stop
+Assert-AppRoleReport -Report $parsedRoleReport -ExpectedLogin $false
+```
+
+Antes del hardening es normal que el informe falle en la ausencia efectiva de `CREATE` o `TEMPORARY`; no actives el rol mientras alguna comprobación sea falsa.
+
+### Contraseña y activación `LOGIN`
+
+Genera la contraseña en un gestor de contraseñas. No la guardes en el repositorio, no la pases como argumento y no la escribas en una sentencia SQL. Abre una sesión interactiva sin historial de edición:
+
+```powershell
+& psql -X -n
+```
+
+Dentro de `psql`, ejecuta:
+
+```text
+\password acalogos_app_prod
+ALTER ROLE acalogos_app_prod LOGIN;
+\q
+```
+
+El metacomando `\password` solicita el secreto sin mostrarlo y evita incluirlo en el historial SQL. Tras la activación, repite el check con `-v expected_login=true`, analiza el JSON con `ConvertFrom-Json -ErrorAction Stop` y ejecuta `Assert-AppRoleReport -ExpectedLogin $true`; todas las comprobaciones deben continuar verdaderas.
+
+### URL pooled para Render
+
+Después de activar y verificar el rol:
+
+1. Abre **Connect** en Neon Console.
+2. Selecciona la rama `main`, la base `neondb` y el rol `acalogos_app_prod`.
+3. Activa pooling y confirma que el hostname termine en `-pooler`.
+4. Convierte en memoria `sslmode=require` a `sslmode=verify-full` con `ConvertTo-VerifyFull`, conservando los demás parámetros.
+5. Guarda el resultado directamente como secreto `DATABASE_URL` en Render.
+
+No configures `DIRECT_DATABASE_URL` en el servicio runtime y no guardes la URL pooled en el repositorio.
+
+Después de activar `LOGIN`, carga temporalmente la URL pooled del rol de aplicación en `PGDATABASE` y comprueba desde esa sesión:
+
+```powershell
+$searchPath = & psql -X -w -q -A -t -v ON_ERROR_STOP=1 `
+    -c 'SHOW search_path'
+if ($LASTEXITCODE -ne 0 -or ($searchPath -join "`n").Trim() -cne 'pg_catalog, public') {
+    throw 'El search_path efectivo del rol de aplicación no es el esperado.'
+}
+```
+
+Restaura o elimina `PGDATABASE` mediante `finally` y limpia la URL del proceso y el portapapeles al terminar. El comando solo muestra el `search_path`; no debe imprimir la conexión.
+
+### Pruebas positivas y negativas
+
+Con la conexión pooled del rol de aplicación, las pruebas positivas de escritura deben quedar dentro de una transacción revertida:
+
+```sql
+BEGIN;
+SELECT id
+FROM public.servicios
+WHERE id = 1
+FOR UPDATE;
+
+UPDATE public.servicios
+SET updated_at = updated_at
+WHERE id = 1;
+ROLLBACK;
+```
+
+Comprueba además que `SELECT * FROM public.servicios ORDER BY id` devuelve los seis registros y que el backend responde `GET /servicios` sin usar el fallback JSON.
+
+Las pruebas negativas deben ser no destructivas. Usa `EXPLAIN` sin `ANALYZE` para confirmar que fallan por permisos los intentos de `INSERT`, `DELETE` y actualización de columnas no autorizadas. Usa el check para validar `CREATE`, `TEMPORARY`, ownership, grant options y secuencias; no ejecutes `nextval`, `setval`, `DROP`, `TRUNCATE` ni DDL destructivo como prueba.
+
+### Recuperación manual
+
+- Si falla la provisión, no actives `LOGIN` ni repitas el script hasta identificar si el rol quedó ausente o parcialmente configurado.
+- Si falla el hardening, vuelve a ejecutar el preflight y el check; no asumas que las tres revocaciones se aplicaron, aunque están encerradas en una transacción.
+- Si falla cualquier check, conserva `NOLOGIN` y detén el despliegue.
+- Si la conexión se pierde alrededor de `ALTER ROLE ... LOGIN`, consulta el atributo antes de repetirlo.
+- No automatices `DROP ROLE`, cambios de ownership ni restauraciones de privilegios a `PUBLIC`. Cualquier reversión global requiere una revisión separada de los roles afectados.
 
 ## Referencia temporal desde PostgreSQL local
 
