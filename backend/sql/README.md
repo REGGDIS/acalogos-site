@@ -8,6 +8,7 @@ Esta carpeta versiona únicamente el esquema activo de `public.servicios`. No co
 - `migrations/002_add_cloudinary_image_metadata.sql`: añade las dos columnas y comentarios de metadata Cloudinary.
 - `checks/verify_public_servicios.sql`: comprueba los estados `empty`, `base` y `final` sin modificar la base.
 - `roles/001_create_acalogos_app_prod.sql`: prepara el rol mínimo de producción mediante modos opt-in.
+- `roles/002_repair_acalogos_app_prod_membership.sql`: elimina de forma acotada una membresía administrativa automática del rol ya creado.
 - `checks/verify_acalogos_app_prod.sql`: comprueba los privilegios efectivos del rol sin modificar la base.
 - `rollbacks/002_add_cloudinary_image_metadata.sql`: revierte únicamente la segunda migración.
 
@@ -366,7 +367,7 @@ El `finally` exterior elimina las URLs del proceso, limpia el portapapeles y res
 
 El backend de producción debe conectarse como `acalogos_app_prod` mediante una URL pooled. El rol owner y `DIRECT_DATABASE_URL` quedan reservados para migraciones y tareas administrativas. El archivo `roles/001_create_acalogos_app_prod.sql` no contiene contraseña y es seguro por defecto: si se ejecuta sin variables, solo muestra el preflight de lectura.
 
-Los roles creados desde Neon Console, CLI o API reciben membresía en `neon_superuser`. Por eso `acalogos_app_prod` debe crearse con el SQL versionado desde una conexión directa del owner. No uses **Add role** para este rol.
+`acalogos_app_prod` debe crearse con el SQL versionado desde una conexión directa del owner; no uses **Add role**, porque omitiría la configuración y las comprobaciones del script. En Neon se observó que el creador puede quedar como miembro administrativo del nuevo rol, relación que `001` elimina explícitamente.
 
 ### Preflight de solo lectura
 
@@ -402,9 +403,143 @@ if ($LASTEXITCODE -ne 0) {
 }
 ```
 
-Este modo crea el rol como `NOLOGIN`, sin contraseña ni membresías. Concede solamente `CONNECT` en `neondb`, `USAGE` en `public`, `SELECT` en `public.servicios` y `UPDATE` sobre las cinco columnas usadas por la gestión de imágenes. No concede permisos sobre `public.servicios_id_seq`.
+Este modo crea el rol como `NOLOGIN`, sin contraseña ni membresías. Neon puede añadir al creador como miembro administrativo del nuevo rol; por eso la misma transacción ejecuta `REVOKE acalogos_app_prod FROM CURRENT_USER` y exige que no quede ninguna membresía entrante ni saliente. Si la comprobación falla, se revierte toda la provisión. El script no depende del nombre del owner.
+
+La provisión concede solamente `CONNECT` en `neondb`, `USAGE` en `public`, `SELECT` en `public.servicios` y `UPDATE` sobre las cinco columnas usadas por la gestión de imágenes. No concede permisos sobre `public.servicios_id_seq`.
 
 La provisión falla intencionalmente si el rol ya existe. No la repitas a ciegas: ejecuta primero el check y diagnostica el estado existente.
+
+### Reparación de una membresía ya existente
+
+Si `acalogos_app_prod` ya fue provisionado y el check muestra `zero_memberships=false`, inspecciona primero `pg_auth_members`. El script `002_repair_acalogos_app_prod_membership.sql` solo acepta uno de estos estados:
+
+- cero membresías, que produce un no-op exitoso;
+- una única membresía entrante donde `CURRENT_USER` es miembro de `acalogos_app_prod`, que se revoca dentro de una transacción.
+
+Ejecuta la reparación exclusivamente mediante la conexión directa del miembro confirmado. En Neon, para la relación observada, debe ser `neondb_owner`:
+
+```powershell
+& psql -X -w -v ON_ERROR_STOP=1 `
+    -f '.\backend\sql\roles\002_repair_acalogos_app_prod_membership.sql'
+if ($LASTEXITCODE -ne 0) {
+    throw 'Falló la reparación de la membresía del rol de aplicación.'
+}
+```
+
+El script falla antes de mutar si el rol no existe, si lo ejecuta un administrador distinto del miembro actual, si hay más de una relación o si existe una membresía saliente. No concede membresías, no usa `CASCADE` y no cambia privilegios, ownership, hardening, contraseña ni `LOGIN`.
+
+Antes del hardening, vuelve a ejecutar `checks/verify_acalogos_app_prod.sql` con `-v expected_login=false`. Debe cumplirse `zero_memberships=true`; las únicas comprobaciones falsas esperadas son `database_connect_only` y `public_schema_usage_only`, debido a los privilegios heredados de `PUBLIC`. Cualquier otra diferencia detiene el procedimiento:
+
+```powershell
+function Assert-AppRoleReport {
+    param(
+        [Parameter(Mandatory)] [object] $Report,
+        [Parameter(Mandatory)] [bool] $ExpectedLogin,
+        [string[]] $AllowedFailedChecks = @()
+    )
+
+    $expectedCheckKeys = @(
+        'database_connect_only'
+        'login_state_expected'
+        'other_public_relations_inaccessible'
+        'public_schema_usage_only'
+        'role_attributes_restricted'
+        'role_exists'
+        'search_path_exact'
+        'sequence_privileges_absent'
+        'servicios_forbidden_table_privileges_absent'
+        'servicios_select_complete'
+        'servicios_update_columns_exact'
+        'target_database_exact'
+        'zero_grant_options'
+        'zero_memberships'
+        'zero_ownership'
+    )
+
+    $allowedFailures = @($AllowedFailedChecks | Sort-Object -Unique)
+    if ($allowedFailures.Count -ne $AllowedFailedChecks.Count -or
+        @($allowedFailures | Where-Object { $_ -notin $expectedCheckKeys }).Count -gt 0) {
+        throw 'La lista de fallos permitidos no es válida.'
+    }
+
+    $targetDatabaseProperty = $Report.PSObject.Properties['target_database']
+    $expectedLoginProperty = $Report.PSObject.Properties['expected_login']
+    $allChecksProperty = $Report.PSObject.Properties['all_checks_passed']
+    $checksProperty = $Report.PSObject.Properties['checks']
+
+    if ($null -eq $targetDatabaseProperty -or
+        $targetDatabaseProperty.Value -isnot [string] -or
+        $targetDatabaseProperty.Value -cne 'neondb') {
+        throw 'El informe no corresponde a la base neondb.'
+    }
+
+    if ($null -eq $expectedLoginProperty -or
+        $expectedLoginProperty.Value -isnot [bool] -or
+        $expectedLoginProperty.Value -ne $ExpectedLogin) {
+        throw 'El informe no corresponde al estado LOGIN solicitado.'
+    }
+
+    if ($null -eq $allChecksProperty -or
+        $allChecksProperty.Value -isnot [bool]) {
+        throw 'all_checks_passed no es un booleano válido.'
+    }
+
+    $expectedAllChecksPassed = $allowedFailures.Count -eq 0
+    if ($allChecksProperty.Value -ne $expectedAllChecksPassed) {
+        throw 'all_checks_passed no coincide con los fallos permitidos.'
+    }
+
+    if ($null -eq $checksProperty -or
+        $null -eq $checksProperty.Value -or
+        $checksProperty.Value -isnot [System.Management.Automation.PSCustomObject]) {
+        throw 'El informe no contiene un objeto checks válido.'
+    }
+
+    $checkProperties = @($checksProperty.Value.PSObject.Properties)
+    $actualCheckKeys = @($checkProperties | ForEach-Object Name)
+    $missingCheckKeys = @($expectedCheckKeys | Where-Object { $_ -notin $actualCheckKeys })
+    $unexpectedCheckKeys = @($actualCheckKeys | Where-Object { $_ -notin $expectedCheckKeys })
+    if ($missingCheckKeys.Count -gt 0 -or $unexpectedCheckKeys.Count -gt 0) {
+        throw 'El informe no contiene exactamente las comprobaciones esperadas.'
+    }
+
+    $nonBooleanChecks = @($checkProperties | Where-Object { $_.Value -isnot [bool] })
+    if ($nonBooleanChecks.Count -gt 0) {
+        throw 'El informe contiene comprobaciones que no son booleanas.'
+    }
+
+    if ($checksProperty.Value.zero_memberships -ne $true) {
+        throw 'acalogos_app_prod todavía tiene membresías.'
+    }
+
+    $failedChecks = @(
+        $checkProperties |
+            Where-Object { -not $_.Value } |
+            ForEach-Object Name |
+            Sort-Object
+    )
+    if (@(Compare-Object $failedChecks $allowedFailures).Count -gt 0) {
+        throw 'El informe contiene fallos distintos de los permitidos.'
+    }
+}
+
+$repairCheckRaw = & psql -X -w -q -A -t -v ON_ERROR_STOP=1 `
+    -v expected_login=false `
+    -f '.\backend\sql\checks\verify_acalogos_app_prod.sql'
+if ($LASTEXITCODE -ne 0) {
+    throw 'No se pudo verificar el rol después de reparar la membresía.'
+}
+
+$repairReport = ($repairCheckRaw -join "`n") |
+    ConvertFrom-Json -ErrorAction Stop
+Assert-AppRoleReport `
+    -Report $repairReport `
+    -ExpectedLogin $false `
+    -AllowedFailedChecks @(
+        'database_connect_only'
+        'public_schema_usage_only'
+    )
+```
 
 ### Hardening global
 
@@ -430,77 +565,6 @@ if ($LASTEXITCODE -ne 0) {
 Después del hardening y antes de activar el login, todos los checks deben ser verdaderos:
 
 ```powershell
-function Assert-AppRoleReport {
-    param(
-        [Parameter(Mandatory)] [object] $Report,
-        [Parameter(Mandatory)] [bool] $ExpectedLogin
-    )
-
-    $expectedCheckKeys = @(
-        'database_connect_only'
-        'login_state_expected'
-        'other_public_relations_inaccessible'
-        'public_schema_usage_only'
-        'role_attributes_restricted'
-        'role_exists'
-        'search_path_exact'
-        'sequence_privileges_absent'
-        'servicios_forbidden_table_privileges_absent'
-        'servicios_select_complete'
-        'servicios_update_columns_exact'
-        'target_database_exact'
-        'zero_grant_options'
-        'zero_memberships'
-        'zero_ownership'
-    )
-
-    $targetDatabaseProperty = $Report.PSObject.Properties['target_database']
-    $expectedLoginProperty = $Report.PSObject.Properties['expected_login']
-    $allChecksProperty = $Report.PSObject.Properties['all_checks_passed']
-    $checksProperty = $Report.PSObject.Properties['checks']
-
-    if ($null -eq $targetDatabaseProperty -or
-        $targetDatabaseProperty.Value -isnot [string] -or
-        $targetDatabaseProperty.Value -cne 'neondb') {
-        throw 'El informe no corresponde a la base neondb.'
-    }
-
-    if ($null -eq $expectedLoginProperty -or
-        $expectedLoginProperty.Value -isnot [bool] -or
-        $expectedLoginProperty.Value -ne $ExpectedLogin) {
-        throw 'El informe no corresponde al estado LOGIN solicitado.'
-    }
-
-    if ($null -eq $allChecksProperty -or
-        $allChecksProperty.Value -isnot [bool]) {
-        throw 'all_checks_passed no es un booleano válido.'
-    }
-
-    if ($null -eq $checksProperty -or
-        $null -eq $checksProperty.Value -or
-        $checksProperty.Value -isnot [System.Management.Automation.PSCustomObject]) {
-        throw 'El informe no contiene un objeto checks válido.'
-    }
-
-    $checkProperties = @($checksProperty.Value.PSObject.Properties)
-    $actualCheckKeys = @($checkProperties | ForEach-Object Name)
-    $missingCheckKeys = @($expectedCheckKeys | Where-Object { $_ -notin $actualCheckKeys })
-    $unexpectedCheckKeys = @($actualCheckKeys | Where-Object { $_ -notin $expectedCheckKeys })
-    if ($missingCheckKeys.Count -gt 0 -or $unexpectedCheckKeys.Count -gt 0) {
-        throw 'El informe no contiene exactamente las comprobaciones esperadas.'
-    }
-
-    $nonBooleanChecks = @($checkProperties | Where-Object { $_.Value -isnot [bool] })
-    if ($nonBooleanChecks.Count -gt 0) {
-        throw 'El informe contiene comprobaciones que no son booleanas.'
-    }
-
-    $failedChecks = @($checkProperties | Where-Object { -not $_.Value })
-    if ($failedChecks.Count -gt 0 -or -not $allChecksProperty.Value) {
-        throw 'El rol no tiene los privilegios efectivos esperados.'
-    }
-}
-
 $roleReport = & psql -X -w -q -A -t -v ON_ERROR_STOP=1 `
     -v expected_login=false `
     -f '.\backend\sql\checks\verify_acalogos_app_prod.sql'
@@ -579,7 +643,9 @@ Las pruebas negativas deben ser no destructivas. Usa `EXPLAIN` sin `ANALYZE` par
 
 ### Recuperación manual
 
-- Si falla la provisión, no actives `LOGIN` ni repitas el script hasta identificar si el rol quedó ausente o parcialmente configurado.
+- Si la comprobación de membresías de `001` falla, su transacción revierte la creación y los grants; verifica el estado antes de repetir.
+- Si `002` rechaza el preflight, no hizo cambios. Si falla dentro de su transacción, el `REVOKE` se revierte. Ante una pérdida de conexión alrededor de `COMMIT`, consulta `pg_auth_members` antes de repetir.
+- Ejecuta `002` como el miembro real de `acalogos_app_prod`. Si ya no puedes conectarte como ese rol, una revocación que nombre explícitamente al miembro requiere aprobación independiente.
 - Si falla el hardening, vuelve a ejecutar el preflight y el check; no asumas que las tres revocaciones se aplicaron, aunque están encerradas en una transacción.
 - Si falla cualquier check, conserva `NOLOGIN` y detén el despliegue.
 - Si la conexión se pierde alrededor de `ALTER ROLE ... LOGIN`, consulta el atributo antes de repetirlo.

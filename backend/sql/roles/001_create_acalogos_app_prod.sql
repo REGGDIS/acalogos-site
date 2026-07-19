@@ -100,6 +100,30 @@ CREATE ROLE acalogos_app_prod
     NOREPLICATION
     NOBYPASSRLS;
 
+-- Neon puede añadir al creador como miembro administrativo del nuevo rol.
+-- Elimina completamente esa relación sin depender del nombre del owner.
+REVOKE acalogos_app_prod FROM CURRENT_USER;
+
+WITH app_role AS (
+    SELECT oid
+    FROM pg_catalog.pg_roles
+    WHERE rolname = 'acalogos_app_prod'
+)
+SELECT NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_auth_members AS membership
+    CROSS JOIN app_role
+    WHERE membership.roleid = app_role.oid
+       OR membership.member = app_role.oid
+) AS memberships_cleared
+\gset
+
+\if :memberships_cleared
+\else
+\echo 'La provisión dejó membresías inesperadas. Se revierte la transacción.'
+SELECT 1 / 0 AS unexpected_role_membership;
+\endif
+
 REVOKE ALL PRIVILEGES ON DATABASE neondb FROM acalogos_app_prod;
 GRANT CONNECT ON DATABASE neondb TO acalogos_app_prod;
 
