@@ -1,30 +1,41 @@
 import { Router } from "express";
-import * as serviciosController from "../controllers/serviciosController.js";
-import upload, { handleUploadError, validateUploadedImage } from "../middlewares/uploadMiddleware.js";
-import { verifyToken } from "../middlewares/authMiddleware.js";
+import type { ErrorRequestHandler, RequestHandler } from "express";
 
-const router = Router();
+export type ServiciosRouterDependencies = {
+    obtenerServicios: RequestHandler;
+    obtenerServicio: RequestHandler;
+    subirImagenPrincipal: RequestHandler;
+    borrarImagenPrincipal: RequestHandler;
+    subirImagenAdicional: RequestHandler;
+    borrarImagenAdicional: RequestHandler;
+    verifyToken: RequestHandler;
+    uploadSingle: RequestHandler;
+    validateUploadedImage: RequestHandler;
+    handleUploadError: ErrorRequestHandler;
+};
 
-/* 📌 Definición de rutas */
+export const createServiciosRouter = (dependencies: ServiciosRouterDependencies): Router => {
+    const router = Router();
 
-// ✅ Obtener todos los servicios
-router.get("/", serviciosController.obtenerServicios);
+    // ✅ Obtener todos los servicios
+    router.get("/", dependencies.obtenerServicios);
 
-// ✅ Obtener detalles de un servicio por ID
-router.get("/:id", serviciosController.obtenerServicio);
+    // ✅ Obtener detalles de un servicio por ID
+    router.get("/:id", dependencies.obtenerServicio);
 
-// ✅ Subir imagen principal de un servicio
-router.put("/:id/imagen-principal", verifyToken, upload.single("imagen"), validateUploadedImage, serviciosController.subirImagenPrincipal);
+    // ✅ Subir imagen principal de un servicio
+    router.put("/:id/imagen-principal", dependencies.verifyToken, dependencies.uploadSingle, dependencies.validateUploadedImage, dependencies.subirImagenPrincipal);
 
-// ✅ Eliminar imagen principal de un servicio
-router.delete("/:id/imagen-principal", verifyToken, serviciosController.borrarImagenPrincipal);
+    // ✅ Eliminar imagen principal de un servicio
+    router.delete("/:id/imagen-principal", dependencies.verifyToken, dependencies.borrarImagenPrincipal);
 
-// ✅ Subir imagen adicional a un servicio
-router.put("/:id/imagenes", verifyToken, upload.single("imagen"), validateUploadedImage, serviciosController.subirImagenAdicional);
+    // ✅ Subir imagen adicional a un servicio
+    router.put("/:id/imagenes", dependencies.verifyToken, dependencies.uploadSingle, dependencies.validateUploadedImage, dependencies.subirImagenAdicional);
 
-// ✅ Eliminar imagen adicional de un servicio
-router.delete("/:id/imagenes", verifyToken, serviciosController.borrarImagenAdicional);
+    // ✅ Eliminar imagen adicional de un servicio
+    router.delete("/:id/imagenes", dependencies.verifyToken, dependencies.borrarImagenAdicional);
 
-router.use(handleUploadError);
+    router.use(dependencies.handleUploadError);
 
-export default router;
+    return router;
+};
