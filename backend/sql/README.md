@@ -1,16 +1,21 @@
 # Esquema PostgreSQL de Acalogos
 
-Esta carpeta versiona únicamente el esquema activo de `public.servicios`. No contiene datos, valores de secuencia, tablas de respaldo ni imágenes.
+Esta carpeta versiona los esquemas activos de `public.servicios` y `public.contactos`. No contiene datos, valores de secuencia, tablas de respaldo ni imágenes.
 
 ## Estructura
 
 - `migrations/001_create_public_servicios.sql`: crea la tabla base de nueve columnas, su secuencia serial y la clave primaria.
 - `migrations/002_add_cloudinary_image_metadata.sql`: añade las dos columnas y comentarios de metadata Cloudinary.
-- `checks/verify_public_servicios.sql`: comprueba los estados `empty`, `base` y `final` sin modificar la base.
+- `migrations/003_create_public_contactos.sql`: crea la tabla mínima de contacto, sin estado de correo ni secuencias.
+- `checks/verify_public_servicios.sql`: comprueba los estados `empty`, `base`, `final` y `contactos` sin modificar la base.
+- `checks/verify_public_contactos.sql`: comprueba la forma exacta y el aislamiento de la tabla de contactos sin leer sus filas.
 - `roles/001_create_acalogos_app_prod.sql`: prepara el rol mínimo de producción mediante modos opt-in.
 - `roles/002_repair_acalogos_app_prod_membership.sql`: elimina de forma acotada una membresía administrativa automática del rol ya creado.
+- `roles/003_grant_public_contactos_to_acalogos_app_prod.sql`: reconcilia los grants por columna mínimos de contactos.
 - `checks/verify_acalogos_app_prod.sql`: comprueba los privilegios efectivos del rol sin modificar la base.
 - `rollbacks/002_add_cloudinary_image_metadata.sql`: revierte únicamente la segunda migración.
+- `rollbacks/003_create_public_contactos.sql`: elimina la tabla de contactos y todos sus datos.
+- `maintenance/001_delete_public_contactos_older_than_90_days.sql`: inventaría o elimina, con opt-in, contactos vencidos.
 
 Los archivos de `rollbacks` nunca deben incluirse en un glob o bucle que aplique migraciones forward.
 
@@ -181,13 +186,13 @@ Referencias: [conexión con `psql` en Neon](https://neon.com/docs/connect/query-
 
 ### Preflight y aplicación
 
-El wrapper de validación ejecuta el archivo de checks, analiza su único resultado JSON y falla si alguna comprobación estructural es falsa. El informe contiene etapa, base, versión PostgreSQL, una observación informativa de `pg_stat_ssl` y veinte comprobaciones booleanas. La observación TLS no participa en `all_checks_passed`: en Neon, el proxy puede terminar TLS antes de la sesión visible para PostgreSQL. La garantía TLS principal es la validación del cliente mediante `sslmode=verify-full` antes de ejecutar este archivo.
+El wrapper de validación ejecuta el archivo de checks, analiza su único resultado JSON y falla si alguna comprobación estructural es falsa. El informe contiene etapa, base, versión PostgreSQL, una observación informativa de `pg_stat_ssl` y comprobaciones booleanas cerradas. La observación TLS no participa en `all_checks_passed`: en Neon, el proxy puede terminar TLS antes de la sesión visible para PostgreSQL. La garantía TLS principal es la validación del cliente mediante `sslmode=verify-full` antes de ejecutar este archivo.
 
 ```powershell
 function Invoke-ServiciosSchemaCheck {
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('empty', 'base', 'final')]
+        [ValidateSet('empty', 'base', 'final', 'contactos')]
         [string] $Stage,
 
         [Parameter(Mandatory)]
@@ -323,6 +328,26 @@ try {
     }
 
     Invoke-ServiciosSchemaCheck -Stage final -SqlRoot $sqlRoot
+
+    & psql -X -w -v ON_ERROR_STOP=1 `
+        -f (Join-Path $sqlRoot 'migrations\003_create_public_contactos.sql')
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falló la migración 003."
+    }
+
+    Invoke-ServiciosSchemaCheck -Stage contactos -SqlRoot $sqlRoot
+
+    $contactosReportRaw = & psql -X -w -q -A -t -v ON_ERROR_STOP=1 `
+        -f (Join-Path $sqlRoot 'checks\verify_public_contactos.sql')
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falló el check estructural de contactos."
+    }
+
+    $contactosReport = ($contactosReportRaw -join "`n") |
+        ConvertFrom-Json -ErrorAction Stop
+    if ($contactosReport.all_checks_passed -ne $true) {
+        throw "La estructura de public.contactos no coincide con la versión aprobada."
+    }
 } finally {
     $pooledRaw = $null
     $directRaw = $null
@@ -350,6 +375,7 @@ try {
 
 `001` falla intencionalmente si la tabla o la secuencia ya existen. No se debe usar para reconciliar una base con deriva de esquema.
 `002` también es estricta: falla si alguna columna Cloudinary ya existe, evitando aceptar un estado parcial o inesperado.
+`003` es igualmente estricta: una segunda aplicación falla porque `public.contactos` ya existe y su transacción no altera el estado confirmado.
 
 ### Recuperación
 
@@ -359,6 +385,8 @@ try {
 - Si falla `002`, su transacción se revierte y `001` permanece aplicada. Ejecuta el check `base`; después de corregir la causa, repite únicamente `002`.
 - No ejecutes el rollback de `002` después de un fallo de `002`: la transacción ya habrá revertido sus cambios.
 - Si falla `final`, no despliegues la aplicación ni importes datos. El rollback requiere aprobación explícita y solo corresponde si el problema está limitado a las columnas Cloudinary.
+- Si falla `003`, su transacción se revierte y `servicios` permanece en estado `final`. No ejecutes el rollback de `003` después de un forward fallido.
+- Si falla el estado `contactos`, detén el despliegue. El rollback de `003` requiere aprobación y confirmación de que sus datos pueden eliminarse.
 - No automatices `DROP TABLE`. Volver a una base vacía es una operación destructiva separada.
 
 El `finally` exterior elimina las URLs del proceso, limpia el portapapeles y restaura `PGDATABASE` y `PGCONNECT_TIMEOUT` incluso si falla la lectura, la validación, `psql` o una migración.
@@ -405,7 +433,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Este modo crea el rol como `NOLOGIN`, sin contraseña ni membresías. Neon puede añadir al creador como miembro administrativo del nuevo rol; por eso la misma transacción ejecuta `REVOKE acalogos_app_prod FROM CURRENT_USER` y exige que no quede ninguna membresía entrante ni saliente. Si la comprobación falla, se revierte toda la provisión. El script no depende del nombre del owner.
 
-La provisión concede solamente `CONNECT` en `neondb`, `USAGE` en `public`, `SELECT` en `public.servicios` y `UPDATE` sobre las cinco columnas usadas por la gestión de imágenes. No concede permisos sobre `public.servicios_id_seq`.
+La provisión inicial concede solamente `CONNECT` en `neondb`, `USAGE` en `public`, `SELECT` en `public.servicios` y `UPDATE` sobre las cinco columnas usadas por la gestión de imágenes. No concede permisos sobre `public.servicios_id_seq`. Después de crear `public.contactos`, el script `003` añade exclusivamente `INSERT` sobre sus cuatro columnas de entrada y `SELECT(id)`.
 
 La provisión falla intencionalmente si el rol ya existe. No la repitas a ciegas: ejecuta primero el check y diagnostica el estado existente.
 
@@ -428,18 +456,44 @@ if ($LASTEXITCODE -ne 0) {
 
 El script falla antes de mutar si el rol no existe, si lo ejecuta un administrador distinto del miembro actual, si hay más de una relación o si existe una membresía saliente. No concede membresías, no usa `CASCADE` y no cambia privilegios, ownership, hardening, contraseña ni `LOGIN`.
 
-Antes del hardening, vuelve a ejecutar `checks/verify_acalogos_app_prod.sql` con `-v expected_login=false`. Debe cumplirse `zero_memberships=true`; las únicas comprobaciones falsas esperadas son `database_connect_only` y `public_schema_usage_only`, debido a los privilegios heredados de `PUBLIC`. Cualquier otra diferencia detiene el procedimiento:
+### Grants mínimos de contactos
+
+Al llegar a este punto, `migrations/003_create_public_contactos.sql` y `checks/verify_public_contactos.sql` ya deben haber finalizado correctamente. Confirma además que `acalogos_app_prod` existe y que la provisión o reparación aplicable terminó sin errores. Antes de ejecutar por primera vez el check completo de contactos del rol, aplica los grants mínimos en una operación separada:
+
+```powershell
+& psql -X -w -v ON_ERROR_STOP=1 `
+    -f '.\backend\sql\roles\003_grant_public_contactos_to_acalogos_app_prod.sql'
+if ($LASTEXITCODE -ne 0) {
+    throw 'Fallaron los grants mínimos de contactos.'
+}
+```
+
+Este paso es reaplicable: revoca primero los privilegios de tabla y columna de `contactos` y restablece únicamente la matriz aprobada. No continúes al hardening ni a la activación si falla.
+
+### Primer check completo del rol
+
+Solo después de aplicar los grants, ejecuta `checks/verify_acalogos_app_prod.sql` con `-v expected_login=false -v expected_contactos=true`. Debe cumplirse `zero_memberships=true`; las únicas comprobaciones falsas esperadas antes del hardening son `database_connect_only` y `public_schema_usage_only`, debido a los privilegios heredados de `PUBLIC`. Cualquier otra diferencia detiene el procedimiento:
 
 ```powershell
 function Assert-AppRoleReport {
     param(
         [Parameter(Mandatory)] [object] $Report,
         [Parameter(Mandatory)] [bool] $ExpectedLogin,
+        [Parameter(Mandatory)] [bool] $ExpectedContactos,
         [string[]] $AllowedFailedChecks = @()
     )
 
     $expectedCheckKeys = @(
         'database_connect_only'
+        'contactos_forbidden_table_privileges_absent'
+        'contactos_insert_columns_exact'
+        'contactos_not_owned_by_app_role'
+        'contactos_pii_select_absent'
+        'contactos_references_columns_absent'
+        'contactos_select_id_only'
+        'contactos_table_exists'
+        'contactos_update_columns_absent'
+        'contactos_zero_grant_options'
         'login_state_expected'
         'other_public_relations_inaccessible'
         'public_schema_usage_only'
@@ -464,6 +518,7 @@ function Assert-AppRoleReport {
 
     $targetDatabaseProperty = $Report.PSObject.Properties['target_database']
     $expectedLoginProperty = $Report.PSObject.Properties['expected_login']
+    $expectedContactosProperty = $Report.PSObject.Properties['expected_contactos']
     $allChecksProperty = $Report.PSObject.Properties['all_checks_passed']
     $checksProperty = $Report.PSObject.Properties['checks']
 
@@ -477,6 +532,12 @@ function Assert-AppRoleReport {
         $expectedLoginProperty.Value -isnot [bool] -or
         $expectedLoginProperty.Value -ne $ExpectedLogin) {
         throw 'El informe no corresponde al estado LOGIN solicitado.'
+    }
+
+    if ($null -eq $expectedContactosProperty -or
+        $expectedContactosProperty.Value -isnot [bool] -or
+        $expectedContactosProperty.Value -ne $ExpectedContactos) {
+        throw 'El informe no corresponde al estado de contactos solicitado.'
     }
 
     if ($null -eq $allChecksProperty -or
@@ -525,6 +586,7 @@ function Assert-AppRoleReport {
 
 $repairCheckRaw = & psql -X -w -q -A -t -v ON_ERROR_STOP=1 `
     -v expected_login=false `
+    -v expected_contactos=true `
     -f '.\backend\sql\checks\verify_acalogos_app_prod.sql'
 if ($LASTEXITCODE -ne 0) {
     throw 'No se pudo verificar el rol después de reparar la membresía.'
@@ -535,6 +597,7 @@ $repairReport = ($repairCheckRaw -join "`n") |
 Assert-AppRoleReport `
     -Report $repairReport `
     -ExpectedLogin $false `
+    -ExpectedContactos $true `
     -AllowedFailedChecks @(
         'database_connect_only'
         'public_schema_usage_only'
@@ -567,13 +630,14 @@ Después del hardening y antes de activar el login, todos los checks deben ser v
 ```powershell
 $roleReport = & psql -X -w -q -A -t -v ON_ERROR_STOP=1 `
     -v expected_login=false `
+    -v expected_contactos=true `
     -f '.\backend\sql\checks\verify_acalogos_app_prod.sql'
 if ($LASTEXITCODE -ne 0) {
     throw 'No se pudieron verificar los privilegios del rol NOLOGIN.'
 }
 
 $parsedRoleReport = ($roleReport -join "`n") | ConvertFrom-Json -ErrorAction Stop
-Assert-AppRoleReport -Report $parsedRoleReport -ExpectedLogin $false
+Assert-AppRoleReport -Report $parsedRoleReport -ExpectedLogin $false -ExpectedContactos $true
 ```
 
 Antes del hardening es normal que el informe falle en la ausencia efectiva de `CREATE` o `TEMPORARY`; no actives el rol mientras alguna comprobación sea falsa.
@@ -594,7 +658,7 @@ ALTER ROLE acalogos_app_prod LOGIN;
 \q
 ```
 
-El metacomando `\password` solicita el secreto sin mostrarlo y evita incluirlo en el historial SQL. Tras la activación, repite el check con `-v expected_login=true`, analiza el JSON con `ConvertFrom-Json -ErrorAction Stop` y ejecuta `Assert-AppRoleReport -ExpectedLogin $true`; todas las comprobaciones deben continuar verdaderas.
+El metacomando `\password` solicita el secreto sin mostrarlo y evita incluirlo en el historial SQL. Tras la activación, repite el check con `-v expected_login=true -v expected_contactos=true`, analiza el JSON con `ConvertFrom-Json -ErrorAction Stop` y ejecuta `Assert-AppRoleReport -ExpectedLogin $true -ExpectedContactos $true`; todas las comprobaciones deben continuar verdaderas.
 
 ### URL pooled para Render
 
@@ -650,6 +714,90 @@ Las pruebas negativas deben ser no destructivas. Usa `EXPLAIN` sin `ANALYZE` par
 - Si falla cualquier check, conserva `NOLOGIN` y detén el despliegue.
 - Si la conexión se pierde alrededor de `ALTER ROLE ... LOGIN`, consulta el atributo antes de repetirlo.
 - No automatices `DROP ROLE`, cambios de ownership ni restauraciones de privilegios a `PUBLIC`. Cualquier reversión global requiere una revisión separada de los roles afectados.
+
+## Contactos: migración, grants y verificación
+
+Esta primera etapa es deliberadamente **Neon-only**: crea almacenamiento durable, pero no registra `POST /contacto`, no configura proveedores de correo y no incorpora estados de envío.
+
+El identificador se genera exclusivamente en PostgreSQL mediante `pg_catalog.gen_random_uuid()`, función incluida en PostgreSQL 14. No se instala ninguna extensión ni se crea una secuencia. El contrato futuro de `POST /contacto` no debe aceptar `id` ni `created_at`; ambos valores pertenecen a la base de datos. Cualquier aplicación real de esta migración o de sus grants en Neon requiere una revisión y aprobación separadas.
+
+### Migración y check estructural
+
+La secuencia de aplicación segura documentada al inicio ejecuta primero `migrations/003_create_public_contactos.sql` mediante la conexión directa del owner. Inmediatamente después valida el inventario público con el estado `contactos` y ejecuta `checks/verify_public_contactos.sql`. No se debe confirmar la migración ni avanzar a la preparación del rol si el informe estructural no devuelve `all_checks_passed=true`.
+
+La migración no usa `IF NOT EXISTS`: repetirla debe fallar con `relation already exists`. Después de ese fallo controlado, ambos checks deben continuar pasando.
+
+### Matriz mínima de permisos
+
+| Columna | `INSERT` | `SELECT` | `UPDATE` | `REFERENCES` |
+|---|---:|---:|---:|---:|
+| `id` | no | sí | no | no |
+| `nombre` | sí | no | no | no |
+| `email` | sí | no | no | no |
+| `mensaje` | sí | no | no | no |
+| `privacy_notice_version` | sí | no | no | no |
+| `created_at` | no | no | no | no |
+
+La escritura futura del backend debe usar exactamente la forma siguiente, sin UUID aportado por el cliente y sin `ON CONFLICT(id)`:
+
+```sql
+INSERT INTO public.contactos (
+    nombre,
+    email,
+    mensaje,
+    privacy_notice_version
+)
+VALUES ($1, $2, $3, $4)
+RETURNING id;
+```
+
+`SELECT(id)` es el único permiso de lectura y la concesión mínima necesaria para que PostgreSQL permita `RETURNING id`. Consulta [`INSERT` en PostgreSQL 14](https://www.postgresql.org/docs/14/sql-insert.html). El costo aceptado es que el runtime puede listar UUID, pero no PII ni fechas.
+
+### Grants y check del rol
+
+La sección **Rol mínimo de la aplicación** contiene el único paso operativo para aplicar `roles/003_grant_public_contactos_to_acalogos_app_prod.sql`. Se ejecuta después de confirmar que el rol existe y antes del primer `verify_acalogos_app_prod.sql` con `expected_contactos=true`. Ese check debe completarse antes de cualquier hardening o activación posterior; tras activar `LOGIN`, se repite con `expected_login=true` sin reaplicar los grants a ciegas.
+
+El script revoca primero privilegios de tabla y columna para `contactos`; luego concede únicamente `INSERT` en `nombre`, `email`, `mensaje` y `privacy_notice_version`, además de `SELECT(id)`. No permite insertar `id` ni `created_at`. No cambia ownership, atributos, membresías, permisos globales ni default privileges. No concede `UPDATE`, `DELETE`, `TRUNCATE`, `REFERENCES`, `TRIGGER` ni acceso a secuencias.
+
+Las pruebas con el rol de aplicación deben insertar sin `id` ni `created_at`, recuperar cada UUID con `RETURNING id` y comprobar que dos inserciones generan identificadores diferentes. Los intentos de insertar `id` o `created_at`, leer `nombre`, `email`, `mensaje`, `privacy_notice_version` o `created_at`, actualizar, borrar o truncar deben fallar por permisos. Cada fallo esperado se prueba en una invocación aislada de `psql`; no se desactiva `ON_ERROR_STOP` globalmente y nunca se imprimen datos reales.
+
+### Rollback de contactos
+
+`rollbacks/003_create_public_contactos.sql` elimina la tabla, su índice y sus ACL. Es destructivo: antes de ejecutarlo, el owner debe respaldar los mensajes o confirmar expresamente que pueden eliminarse. No se usa `IF EXISTS`; repetir el rollback debe fallar de forma controlada.
+
+Después del rollback:
+
+```powershell
+Invoke-ServiciosSchemaCheck -Stage final -SqlRoot $sqlRoot
+
+$roleReportRaw = & psql -X -w -q -A -t -v ON_ERROR_STOP=1 `
+    -v expected_login=true `
+    -v expected_contactos=false `
+    -f (Join-Path $sqlRoot 'checks\verify_acalogos_app_prod.sql')
+```
+
+### Retención manual de 90 días
+
+`maintenance/001_delete_public_contactos_older_than_90_days.sql` debe ejecutarlo el owner mediante `DIRECT_DATABASE_URL` en una sesión administrativa local. `DIRECT_DATABASE_URL` nunca se configura en Render. El script falla fuera de `neondb`, si falta la tabla o si el ejecutor no es su owner.
+
+Sin variables, el script es dry-run: informa únicamente base, fecha de corte y cantidad agregada de candidatos. La comprobación del owner se mantiene interna; el informe no muestra usuario, UUID ni PII. Para aplicar:
+
+```powershell
+& psql -X -w -v ON_ERROR_STOP=1 `
+    -v apply_retention=true `
+    -f '.\backend\sql\maintenance\001_delete_public_contactos_older_than_90_days.sql'
+```
+
+La operación usa `lock_timeout=5s`, `statement_timeout=30s`, no contiene `RETURNING` y no concede `DELETE` al runtime. Falta asignar un responsable, programarla mensualmente y registrar fecha, cantidad eliminada y resultado. No se debe automatizar hasta aprobar por separado el mecanismo y el manejo de credenciales.
+
+### Validación aislada de contactos
+
+La validación completa se realiza en dos bases `neondb` PostgreSQL 14 efímeras:
+
+1. En la primera: `001`, `002`, provisión/hardening del rol, `003`, check estructural, grants, check completo, dos inserciones con UUID generado, permisos negativos, regresión de `servicios`, reaplicación de grants y fallo controlado de una segunda migración.
+2. En la segunda: mismo forward, una fila ficticia, rollback `003`, estado `final`, check del rol con `expected_contactos=false` y fallo controlado de un segundo rollback.
+
+Los checks no consultan filas de contacto. Los datos de prueba deben usar exclusivamente direcciones `.test`; los UUID se generan en PostgreSQL.
 
 ## Referencia temporal desde PostgreSQL local
 
