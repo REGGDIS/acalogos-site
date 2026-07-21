@@ -2,16 +2,23 @@
 \pset format unaligned
 \pset tuples_only on
 
--- Debe recibirse como -v expected_login=false antes de la activación o como
--- -v expected_login=true después de habilitar LOGIN.
 \if :{?expected_login}
 \else
-\set expected_login missing
+\echo 'Debe definir expected_login como true o false.'
+\quit 1
+\endif
+
+\if :{?expected_contactos}
+\else
+\echo 'Debe definir expected_contactos como true o false.'
+\quit 1
 \endif
 
 WITH
 expected AS (
-    SELECT :'expected_login'::boolean AS login_enabled
+    SELECT
+        :'expected_login'::boolean AS login_enabled,
+        :'expected_contactos'::boolean AS contactos_exists
 ),
 app_role AS (
     SELECT
@@ -26,7 +33,7 @@ app_role AS (
     FROM pg_catalog.pg_roles AS roles
     WHERE roles.rolname = 'acalogos_app_prod'
 ),
-target_table AS (
+servicios_table AS (
     SELECT class_record.oid
     FROM pg_catalog.pg_class AS class_record
     JOIN pg_catalog.pg_namespace AS namespace_record
@@ -35,7 +42,7 @@ target_table AS (
       AND class_record.relname = 'servicios'
       AND class_record.relkind IN ('r', 'p')
 ),
-target_sequence AS (
+servicios_sequence AS (
     SELECT class_record.oid
     FROM pg_catalog.pg_class AS class_record
     JOIN pg_catalog.pg_namespace AS namespace_record
@@ -44,12 +51,19 @@ target_sequence AS (
       AND class_record.relname = 'servicios_id_seq'
       AND class_record.relkind = 'S'
 ),
+contactos_table AS (
+    SELECT class_record.oid, class_record.relowner
+    FROM pg_catalog.pg_class AS class_record
+    JOIN pg_catalog.pg_namespace AS namespace_record
+      ON namespace_record.oid = class_record.relnamespace
+    WHERE namespace_record.nspname = 'public'
+      AND class_record.relname = 'contactos'
+      AND class_record.relkind IN ('r', 'p')
+),
 role_search_path AS (
     SELECT
         pg_catalog.count(*) = 1
-        AND pg_catalog.bool_and(
-            setting.value = 'search_path=pg_catalog, public'
-        ) AS is_exact
+        AND pg_catalog.bool_and(setting.value = 'search_path=pg_catalog, public') AS is_exact
     FROM app_role
     JOIN pg_catalog.pg_database AS database_record
       ON database_record.datname = 'neondb'
@@ -59,21 +73,11 @@ role_search_path AS (
     CROSS JOIN LATERAL pg_catalog.unnest(role_setting.setconfig) AS setting(value)
     WHERE setting.value LIKE 'search_path=%'
 ),
-column_access AS (
+servicios_column_access AS (
     SELECT
         attribute.attname,
-        pg_catalog.has_column_privilege(
-            app_role.oid,
-            target_table.oid,
-            attribute.attnum,
-            'SELECT'
-        ) AS can_select,
-        pg_catalog.has_column_privilege(
-            app_role.oid,
-            target_table.oid,
-            attribute.attnum,
-            'UPDATE'
-        ) AS can_update,
+        pg_catalog.has_column_privilege(app_role.oid, servicios_table.oid, attribute.attnum, 'SELECT') AS can_select,
+        pg_catalog.has_column_privilege(app_role.oid, servicios_table.oid, attribute.attnum, 'UPDATE') AS can_update,
         attribute.attname = ANY (ARRAY[
             'imagen',
             'imagen_public_id',
@@ -82,9 +86,30 @@ column_access AS (
             'updated_at'
         ]::name[]) AS update_expected
     FROM app_role
-    CROSS JOIN target_table
+    CROSS JOIN servicios_table
     JOIN pg_catalog.pg_attribute AS attribute
-      ON attribute.attrelid = target_table.oid
+      ON attribute.attrelid = servicios_table.oid
+    WHERE attribute.attnum > 0
+      AND NOT attribute.attisdropped
+),
+contactos_column_access AS (
+    SELECT
+        attribute.attname,
+        pg_catalog.has_column_privilege(app_role.oid, contactos_table.oid, attribute.attnum, 'SELECT') AS can_select,
+        pg_catalog.has_column_privilege(app_role.oid, contactos_table.oid, attribute.attnum, 'INSERT') AS can_insert,
+        pg_catalog.has_column_privilege(app_role.oid, contactos_table.oid, attribute.attnum, 'UPDATE') AS can_update,
+        pg_catalog.has_column_privilege(app_role.oid, contactos_table.oid, attribute.attnum, 'REFERENCES') AS can_reference,
+        attribute.attname = 'id' AS select_expected,
+        attribute.attname = ANY (ARRAY[
+            'nombre',
+            'email',
+            'mensaje',
+            'privacy_notice_version'
+        ]::name[]) AS insert_expected
+    FROM app_role
+    CROSS JOIN contactos_table
+    JOIN pg_catalog.pg_attribute AS attribute
+      ON attribute.attrelid = contactos_table.oid
     WHERE attribute.attnum > 0
       AND NOT attribute.attisdropped
 ),
@@ -142,30 +167,99 @@ checks AS (
         'search_path_exact',
             COALESCE((SELECT is_exact FROM role_search_path), false),
         'servicios_select_complete',
-            COALESCE((SELECT pg_catalog.bool_and(can_select) FROM column_access), false),
+            COALESCE((SELECT pg_catalog.bool_and(can_select) FROM servicios_column_access), false),
         'servicios_update_columns_exact',
-            COALESCE((SELECT pg_catalog.bool_and(can_update = update_expected) FROM column_access), false),
+            COALESCE((SELECT pg_catalog.bool_and(can_update = update_expected) FROM servicios_column_access), false),
         'servicios_forbidden_table_privileges_absent',
             COALESCE((
                 SELECT NOT (
-                    pg_catalog.has_table_privilege(app_role.oid, target_table.oid, 'INSERT')
-                    OR pg_catalog.has_table_privilege(app_role.oid, target_table.oid, 'DELETE')
-                    OR pg_catalog.has_table_privilege(app_role.oid, target_table.oid, 'TRUNCATE')
-                    OR pg_catalog.has_table_privilege(app_role.oid, target_table.oid, 'REFERENCES')
-                    OR pg_catalog.has_table_privilege(app_role.oid, target_table.oid, 'TRIGGER')
+                    pg_catalog.has_table_privilege(app_role.oid, servicios_table.oid, 'INSERT')
+                    OR pg_catalog.has_table_privilege(app_role.oid, servicios_table.oid, 'DELETE')
+                    OR pg_catalog.has_table_privilege(app_role.oid, servicios_table.oid, 'TRUNCATE')
+                    OR pg_catalog.has_table_privilege(app_role.oid, servicios_table.oid, 'REFERENCES')
+                    OR pg_catalog.has_table_privilege(app_role.oid, servicios_table.oid, 'TRIGGER')
                 )
                 FROM app_role
-                CROSS JOIN target_table
+                CROSS JOIN servicios_table
             ), false),
         'sequence_privileges_absent',
             COALESCE((
                 SELECT NOT (
-                    pg_catalog.has_sequence_privilege(app_role.oid, target_sequence.oid, 'USAGE')
-                    OR pg_catalog.has_sequence_privilege(app_role.oid, target_sequence.oid, 'SELECT')
-                    OR pg_catalog.has_sequence_privilege(app_role.oid, target_sequence.oid, 'UPDATE')
+                    pg_catalog.has_sequence_privilege(app_role.oid, servicios_sequence.oid, 'USAGE')
+                    OR pg_catalog.has_sequence_privilege(app_role.oid, servicios_sequence.oid, 'SELECT')
+                    OR pg_catalog.has_sequence_privilege(app_role.oid, servicios_sequence.oid, 'UPDATE')
                 )
                 FROM app_role
-                CROSS JOIN target_sequence
+                CROSS JOIN servicios_sequence
+            ), false),
+        'contactos_table_exists',
+            (EXISTS (SELECT 1 FROM contactos_table)) = (SELECT contactos_exists FROM expected),
+        'contactos_insert_columns_exact',
+            NOT (SELECT contactos_exists FROM expected)
+            OR COALESCE((SELECT pg_catalog.bool_and(can_insert = insert_expected) FROM contactos_column_access), false),
+        'contactos_select_id_only',
+            NOT (SELECT contactos_exists FROM expected)
+            OR COALESCE((SELECT pg_catalog.bool_and(can_select = select_expected) FROM contactos_column_access), false),
+        'contactos_pii_select_absent',
+            NOT (SELECT contactos_exists FROM expected)
+            OR COALESCE((
+                SELECT NOT pg_catalog.bool_or(can_select)
+                FROM contactos_column_access
+                WHERE attname <> 'id'
+            ), false),
+        'contactos_update_columns_absent',
+            NOT (SELECT contactos_exists FROM expected)
+            OR COALESCE((SELECT NOT pg_catalog.bool_or(can_update) FROM contactos_column_access), false),
+        'contactos_references_columns_absent',
+            NOT (SELECT contactos_exists FROM expected)
+            OR COALESCE((SELECT NOT pg_catalog.bool_or(can_reference) FROM contactos_column_access), false),
+        'contactos_forbidden_table_privileges_absent',
+            NOT (SELECT contactos_exists FROM expected)
+            OR COALESCE((
+                SELECT NOT (
+                    pg_catalog.has_table_privilege(app_role.oid, contactos_table.oid, 'SELECT')
+                    OR pg_catalog.has_table_privilege(app_role.oid, contactos_table.oid, 'INSERT')
+                    OR pg_catalog.has_table_privilege(app_role.oid, contactos_table.oid, 'UPDATE')
+                    OR pg_catalog.has_table_privilege(app_role.oid, contactos_table.oid, 'DELETE')
+                    OR pg_catalog.has_table_privilege(app_role.oid, contactos_table.oid, 'TRUNCATE')
+                    OR pg_catalog.has_table_privilege(app_role.oid, contactos_table.oid, 'REFERENCES')
+                    OR pg_catalog.has_table_privilege(app_role.oid, contactos_table.oid, 'TRIGGER')
+                )
+                FROM app_role
+                CROSS JOIN contactos_table
+            ), false),
+        'contactos_zero_grant_options',
+            NOT (SELECT contactos_exists FROM expected)
+            OR COALESCE((
+                SELECT NOT (
+                    pg_catalog.has_table_privilege(
+                        app_role.oid,
+                        contactos_table.oid,
+                        'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION'
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM pg_catalog.pg_attribute AS attribute
+                        WHERE attribute.attrelid = contactos_table.oid
+                          AND attribute.attnum > 0
+                          AND NOT attribute.attisdropped
+                          AND (
+                              pg_catalog.has_column_privilege(app_role.oid, contactos_table.oid, attribute.attnum, 'SELECT WITH GRANT OPTION')
+                              OR pg_catalog.has_column_privilege(app_role.oid, contactos_table.oid, attribute.attnum, 'INSERT WITH GRANT OPTION')
+                              OR pg_catalog.has_column_privilege(app_role.oid, contactos_table.oid, attribute.attnum, 'UPDATE WITH GRANT OPTION')
+                              OR pg_catalog.has_column_privilege(app_role.oid, contactos_table.oid, attribute.attnum, 'REFERENCES WITH GRANT OPTION')
+                          )
+                    )
+                )
+                FROM app_role
+                CROSS JOIN contactos_table
+            ), false),
+        'contactos_not_owned_by_app_role',
+            NOT (SELECT contactos_exists FROM expected)
+            OR COALESCE((
+                SELECT contactos_table.relowner <> app_role.oid
+                FROM contactos_table
+                CROSS JOIN app_role
             ), false),
         'other_public_relations_inaccessible',
             NOT EXISTS (
@@ -176,11 +270,11 @@ checks AS (
                 CROSS JOIN app_role
                 WHERE namespace_record.nspname = 'public'
                   AND class_record.relkind IN ('r', 'p', 'v', 'm', 'f')
-                  AND class_record.oid <> COALESCE((SELECT oid FROM target_table), 0::oid)
-                  AND pg_catalog.has_table_privilege(
-                      app_role.oid,
-                      class_record.oid,
-                      'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+                  AND class_record.oid <> COALESCE((SELECT oid FROM servicios_table), 0::oid)
+                  AND class_record.oid <> COALESCE((SELECT oid FROM contactos_table), 0::oid)
+                  AND (
+                      pg_catalog.has_table_privilege(app_role.oid, class_record.oid, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                      OR pg_catalog.has_any_column_privilege(app_role.oid, class_record.oid, 'SELECT,INSERT,UPDATE,REFERENCES')
                   )
             )
             AND NOT EXISTS (
@@ -191,7 +285,7 @@ checks AS (
                 CROSS JOIN app_role
                 WHERE namespace_record.nspname = 'public'
                   AND class_record.relkind = 'S'
-                  AND class_record.oid <> COALESCE((SELECT oid FROM target_sequence), 0::oid)
+                  AND class_record.oid <> COALESCE((SELECT oid FROM servicios_sequence), 0::oid)
                   AND (
                       pg_catalog.has_sequence_privilege(app_role.oid, class_record.oid, 'USAGE')
                       OR pg_catalog.has_sequence_privilege(app_role.oid, class_record.oid, 'SELECT')
@@ -208,51 +302,57 @@ checks AS (
                     OR pg_catalog.has_schema_privilege(app_role.oid, 'public', 'CREATE WITH GRANT OPTION')
                     OR pg_catalog.has_table_privilege(
                         app_role.oid,
-                        target_table.oid,
+                        servicios_table.oid,
                         'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION'
                     )
                     OR pg_catalog.has_sequence_privilege(
                         app_role.oid,
-                        target_sequence.oid,
+                        servicios_sequence.oid,
                         'USAGE WITH GRANT OPTION,SELECT WITH GRANT OPTION,UPDATE WITH GRANT OPTION'
                     )
                     OR EXISTS (
                         SELECT 1
                         FROM pg_catalog.pg_attribute AS attribute
-                        WHERE attribute.attrelid = target_table.oid
+                        WHERE attribute.attrelid = servicios_table.oid
                           AND attribute.attnum > 0
                           AND NOT attribute.attisdropped
                           AND (
-                              pg_catalog.has_column_privilege(
-                                  app_role.oid,
-                                  target_table.oid,
-                                  attribute.attnum,
-                                  'SELECT WITH GRANT OPTION'
-                              )
-                              OR pg_catalog.has_column_privilege(
-                                  app_role.oid,
-                                  target_table.oid,
-                                  attribute.attnum,
-                                  'INSERT WITH GRANT OPTION'
-                              )
-                              OR pg_catalog.has_column_privilege(
-                                  app_role.oid,
-                                  target_table.oid,
-                                  attribute.attnum,
-                                  'UPDATE WITH GRANT OPTION'
-                              )
-                              OR pg_catalog.has_column_privilege(
-                                  app_role.oid,
-                                  target_table.oid,
-                                  attribute.attnum,
-                                  'REFERENCES WITH GRANT OPTION'
-                              )
+                              pg_catalog.has_column_privilege(app_role.oid, servicios_table.oid, attribute.attnum, 'SELECT WITH GRANT OPTION')
+                              OR pg_catalog.has_column_privilege(app_role.oid, servicios_table.oid, attribute.attnum, 'INSERT WITH GRANT OPTION')
+                              OR pg_catalog.has_column_privilege(app_role.oid, servicios_table.oid, attribute.attnum, 'UPDATE WITH GRANT OPTION')
+                              OR pg_catalog.has_column_privilege(app_role.oid, servicios_table.oid, attribute.attnum, 'REFERENCES WITH GRANT OPTION')
                           )
+                    )
+                    OR (
+                        (SELECT contactos_exists FROM expected)
+                        AND NOT COALESCE((
+                            SELECT NOT (
+                                pg_catalog.has_table_privilege(
+                                    app_role.oid,
+                                    contactos_table.oid,
+                                    'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION,DELETE WITH GRANT OPTION,TRUNCATE WITH GRANT OPTION,REFERENCES WITH GRANT OPTION,TRIGGER WITH GRANT OPTION'
+                                )
+                                OR EXISTS (
+                                    SELECT 1
+                                    FROM pg_catalog.pg_attribute AS attribute
+                                    WHERE attribute.attrelid = contactos_table.oid
+                                      AND attribute.attnum > 0
+                                      AND NOT attribute.attisdropped
+                                      AND (
+                                          pg_catalog.has_column_privilege(app_role.oid, contactos_table.oid, attribute.attnum, 'SELECT WITH GRANT OPTION')
+                                          OR pg_catalog.has_column_privilege(app_role.oid, contactos_table.oid, attribute.attnum, 'INSERT WITH GRANT OPTION')
+                                          OR pg_catalog.has_column_privilege(app_role.oid, contactos_table.oid, attribute.attnum, 'UPDATE WITH GRANT OPTION')
+                                          OR pg_catalog.has_column_privilege(app_role.oid, contactos_table.oid, attribute.attnum, 'REFERENCES WITH GRANT OPTION')
+                                      )
+                                )
+                            )
+                            FROM contactos_table
+                        ), false)
                     )
                 )
                 FROM app_role
-                CROSS JOIN target_table
-                CROSS JOIN target_sequence
+                CROSS JOIN servicios_table
+                CROSS JOIN servicios_sequence
             ), false)
     ) AS check_values
 ),
@@ -260,6 +360,7 @@ report AS (
     SELECT pg_catalog.jsonb_build_object(
         'target_database', pg_catalog.current_database(),
         'expected_login', (SELECT login_enabled FROM expected),
+        'expected_contactos', (SELECT contactos_exists FROM expected),
         'all_checks_passed', NOT EXISTS (
             SELECT 1
             FROM pg_catalog.jsonb_each(checks.check_values) AS check_entry

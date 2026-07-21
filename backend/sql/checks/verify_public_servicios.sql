@@ -1,14 +1,14 @@
 \if :{?expected_stage}
 \else
-    \echo 'Debe definir expected_stage como empty, base o final.'
+    \echo 'Debe definir expected_stage como empty, base, final o contactos.'
     \quit 1
 \endif
 
-SELECT :'expected_stage' IN ('empty', 'base', 'final') AS valid_stage \gset
+SELECT :'expected_stage' IN ('empty', 'base', 'final', 'contactos') AS valid_stage \gset
 
 \if :valid_stage
 \else
-    \echo 'expected_stage debe ser empty, base o final.'
+    \echo 'expected_stage debe ser empty, base, final o contactos.'
     \quit 1
 \endif
 
@@ -28,6 +28,7 @@ parameters AS (
             WHEN 'empty' THEN 0
             WHEN 'base' THEN 1
             WHEN 'final' THEN 2
+            WHEN 'contactos' THEN 3
         END AS stage_rank
 ),
 expected_columns (
@@ -229,9 +230,16 @@ checks (check_name, ok) AS (
     )
     UNION ALL
     SELECT 'expected_public_objects',
-        public_objects.object_names = CASE parameters.stage_rank
-            WHEN 0 THEN ARRAY[]::text[]
+        public_objects.object_names = CASE
+            WHEN parameters.stage_rank = 0 THEN ARRAY[]::text[]
+            WHEN parameters.stage_rank IN (1, 2) THEN ARRAY[
+                'servicios:r',
+                'servicios_id_seq:S',
+                'servicios_pkey:i'
+            ]::text[]
             ELSE ARRAY[
+                'contactos:r',
+                'contactos_pkey:i',
                 'servicios:r',
                 'servicios_id_seq:S',
                 'servicios_pkey:i'
