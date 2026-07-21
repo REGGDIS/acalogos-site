@@ -52,9 +52,7 @@ const App: React.FC = () => {
               <Portfolio />
 
               {/* Sección Contacto */}
-              <section id="contact" className="py-16 bg-white">
-                <Contacto />
-              </section>
+              <Contacto />
 
               {/* Footer */}
               <Footer />
