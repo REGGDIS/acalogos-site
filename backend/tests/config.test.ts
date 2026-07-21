@@ -15,6 +15,11 @@ const baseEnvironment = (): NodeJS.ProcessEnv => ({
     CLOUDINARY_CLOUD_NAME: "cloud-name",
     CLOUDINARY_API_KEY: "api-key",
     CLOUDINARY_API_SECRET: "api-secret",
+    CONTACT_ENABLED: "true",
+    CONTACT_TO_EMAIL: "contact@example.test",
+    CONTACT_FROM_EMAIL: "sender@example.test",
+    BREVO_API_KEY: "brevo-api-key",
+    CONTACT_PRIVACY_NOTICE_VERSION: "contact-v1",
 });
 
 const expectConfigError = (env: NodeJS.ProcessEnv, expectedMessage: string): void => {
@@ -222,3 +227,122 @@ test("DB_PORT debe estar dentro del rango válido", () => {
         "Configuración inválida: DB_PORT debe ser un número de puerto válido.",
     );
 });
+
+test("carga la configuración de contacto con límites predeterminados", () => {
+    const result = loadConfig(baseEnvironment());
+
+    assert.deepEqual(result.contact, {
+        enabled: true,
+        toEmail: "contact@example.test",
+        fromEmail: "sender@example.test",
+        brevoApiKey: "brevo-api-key",
+        privacyNoticeVersion: "contact-v1",
+        emailTimeoutMs: 5_000,
+        rateLimitWindowMs: 900_000,
+        rateLimitMax: 100,
+    });
+});
+
+test("contacto queda desactivado por defecto sin exigir configuración de correo", () => {
+    const env = baseEnvironment();
+    delete env.CONTACT_ENABLED;
+    delete env.CONTACT_TO_EMAIL;
+    delete env.CONTACT_FROM_EMAIL;
+    delete env.BREVO_API_KEY;
+    delete env.CONTACT_PRIVACY_NOTICE_VERSION;
+
+    assert.deepEqual(loadConfig(env).contact, { enabled: false });
+});
+
+test("CONTACT_ENABLED=false ignora variables de contacto ausentes", () => {
+    const env = baseEnvironment();
+    env.CONTACT_ENABLED = "false";
+    delete env.CONTACT_TO_EMAIL;
+    delete env.CONTACT_FROM_EMAIL;
+    delete env.BREVO_API_KEY;
+    delete env.CONTACT_PRIVACY_NOTICE_VERSION;
+
+    assert.deepEqual(loadConfig(env).contact, { enabled: false });
+});
+
+test("CONTACT_ENABLED solo acepta true o false sin exponer el valor", () => {
+    const env = baseEnvironment();
+    env.CONTACT_ENABLED = "secret-invalid-flag";
+
+    assert.throws(
+        () => loadConfig(env),
+        (error: unknown) => error instanceof ConfigError
+            && error.message.includes("CONTACT_ENABLED")
+            && !error.message.includes(env.CONTACT_ENABLED!),
+    );
+});
+
+test("PORT se conserva para que index.ts lo entregue a listen", () => {
+    const env = baseEnvironment();
+    env.PORT = "10000";
+
+    assert.equal(loadConfig(env).port, "10000");
+});
+
+test("exige todas las variables obligatorias de contacto sin exponer valores", () => {
+    for (const name of [
+        "CONTACT_TO_EMAIL",
+        "CONTACT_FROM_EMAIL",
+        "BREVO_API_KEY",
+        "CONTACT_PRIVACY_NOTICE_VERSION",
+    ]) {
+        const env = baseEnvironment();
+        delete env[name];
+
+        assert.throws(
+            () => loadConfig(env),
+            (error: unknown) => error instanceof ConfigError
+                && error.message.includes(name)
+                && !error.message.includes("brevo-api-key"),
+        );
+    }
+});
+
+test("rechaza correos de contacto inválidos con el mismo criterio estricto sin imprimir el valor", () => {
+    for (const name of ["CONTACT_TO_EMAIL", "CONTACT_FROM_EMAIL"]) {
+        for (const invalidEmail of ["secret-invalid-email", "bad<mail@example.com", "bad\u0000@example.com"]) {
+            const env = baseEnvironment();
+            env[name] = invalidEmail;
+
+            assert.throws(
+                () => loadConfig(env),
+                (error: unknown) => error instanceof ConfigError
+                    && error.message.includes(name)
+                    && !error.message.includes(env[name]!),
+            );
+        }
+    }
+});
+
+test("valida versión y rangos opcionales de contacto", () => {
+    const invalidCases: Array<[string, string]> = [
+        ["CONTACT_PRIVACY_NOTICE_VERSION", "v".repeat(33)],
+        ["CONTACT_EMAIL_TIMEOUT_MS", "999"],
+        ["CONTACT_RATE_LIMIT_WINDOW_MS", "3600001"],
+        ["CONTACT_RATE_LIMIT_MAX", "0"],
+    ];
+
+    for (const [name, value] of invalidCases) {
+        const env = baseEnvironment();
+        env[name] = value;
+        expectConfigError(env, loadConfigErrorMessage(name));
+    }
+});
+
+const loadConfigErrorMessage = (name: string): string => {
+    switch (name) {
+        case "CONTACT_PRIVACY_NOTICE_VERSION":
+            return "Configuración inválida: CONTACT_PRIVACY_NOTICE_VERSION debe tener como máximo 32 caracteres.";
+        case "CONTACT_EMAIL_TIMEOUT_MS":
+            return "Configuración inválida: CONTACT_EMAIL_TIMEOUT_MS debe ser un entero entre 1000 y 10000.";
+        case "CONTACT_RATE_LIMIT_WINDOW_MS":
+            return "Configuración inválida: CONTACT_RATE_LIMIT_WINDOW_MS debe ser un entero entre 60000 y 3600000.";
+        default:
+            return "Configuración inválida: CONTACT_RATE_LIMIT_MAX debe ser un entero entre 1 y 100.";
+    }
+};

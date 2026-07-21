@@ -1,3 +1,5 @@
+import { contactEmailSchema } from "./validation/contactoValidation.js";
+
 export type LocalDatabaseConfig = {
     mode: "local";
     host: string;
@@ -25,6 +27,18 @@ export type AppConfig = {
         cloudName: string;
         apiKey: string;
         apiSecret: string;
+    };
+    contact: {
+        enabled: false;
+    } | {
+        enabled: true;
+        toEmail: string;
+        fromEmail: string;
+        brevoApiKey: string;
+        privacyNoticeVersion: string;
+        emailTimeoutMs: number;
+        rateLimitWindowMs: number;
+        rateLimitMax: number;
     };
     port: string | number;
 };
@@ -60,6 +74,75 @@ const getRequiredRawEnv = (env: Environment, name: string): string => {
 const getRequiredNormalizedEnv = (env: Environment, name: string): string => (
     getRequiredRawEnv(env, name).trim()
 );
+
+const getRequiredEmailEnv = (env: Environment, name: string): string => {
+    const value = getRequiredNormalizedEnv(env, name);
+    const result = contactEmailSchema.safeParse(value);
+    if (!result.success) {
+        throw new ConfigError(`Configuración inválida: ${name} debe ser un correo electrónico válido.`);
+    }
+
+    return result.data;
+};
+
+const getContactEnabled = (env: Environment): boolean => {
+    const value = getOptionalNormalizedEnv(env, "CONTACT_ENABLED");
+    if (value === undefined || value === "false") return false;
+    if (value === "true") return true;
+    throw new ConfigError("Configuración inválida: CONTACT_ENABLED debe ser true o false.");
+};
+
+const getOptionalIntegerEnv = (
+    env: Environment,
+    name: string,
+    defaultValue: number,
+    minimum: number,
+    maximum: number,
+): number => {
+    const rawValue = getOptionalNormalizedEnv(env, name);
+    if (rawValue === undefined) return defaultValue;
+
+    const value = Number(rawValue);
+    if (!Number.isInteger(value) || value < minimum || value > maximum) {
+        throw new ConfigError(
+            `Configuración inválida: ${name} debe ser un entero entre ${minimum} y ${maximum}.`,
+        );
+    }
+
+    return value;
+};
+
+const getPrivacyNoticeVersion = (env: Environment): string => {
+    const value = getRequiredNormalizedEnv(env, "CONTACT_PRIVACY_NOTICE_VERSION");
+    if (value.length > 32) {
+        throw new ConfigError(
+            "Configuración inválida: CONTACT_PRIVACY_NOTICE_VERSION debe tener como máximo 32 caracteres.",
+        );
+    }
+
+    return value;
+};
+
+const loadContactConfig = (env: Environment): AppConfig["contact"] => {
+    if (!getContactEnabled(env)) return { enabled: false };
+
+    return {
+        enabled: true,
+        toEmail: getRequiredEmailEnv(env, "CONTACT_TO_EMAIL"),
+        fromEmail: getRequiredEmailEnv(env, "CONTACT_FROM_EMAIL"),
+        brevoApiKey: getRequiredRawEnv(env, "BREVO_API_KEY"),
+        privacyNoticeVersion: getPrivacyNoticeVersion(env),
+        emailTimeoutMs: getOptionalIntegerEnv(env, "CONTACT_EMAIL_TIMEOUT_MS", 5_000, 1_000, 10_000),
+        rateLimitWindowMs: getOptionalIntegerEnv(
+            env,
+            "CONTACT_RATE_LIMIT_WINDOW_MS",
+            15 * 60 * 1_000,
+            60_000,
+            3_600_000,
+        ),
+        rateLimitMax: getOptionalIntegerEnv(env, "CONTACT_RATE_LIMIT_MAX", 100, 1, 100),
+    };
+};
 
 const validateDatabaseUrl = (name: "DATABASE_URL" | "DIRECT_DATABASE_URL", value: string): string => {
     let url: URL;
@@ -154,6 +237,7 @@ export const loadConfig = (env: Environment): AppConfig => {
             apiKey: getRequiredRawEnv(env, "CLOUDINARY_API_KEY"),
             apiSecret: getRequiredRawEnv(env, "CLOUDINARY_API_SECRET"),
         },
+        contact: loadContactConfig(env),
         port: getOptionalNormalizedEnv(env, "PORT") ?? 3000,
     };
 };
